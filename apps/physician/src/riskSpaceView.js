@@ -1,5 +1,5 @@
-import { RISK_DOMAINS } from './riskActionLibrary.js?v=risk-domain-action-space-v5';
-import { RISK_DOMAIN_TIERS } from './riskDomainTiers.js?v=risk-domain-action-space-v5';
+import { RISK_DOMAINS } from './riskActionLibrary.js?v=risk-domain-action-space-v8';
+import { RISK_DOMAIN_TIERS } from './riskDomainTiers.js?v=risk-domain-action-space-v8';
 
 const esc = (value) => String(value ?? '')
   .replace(/&/g, '&amp;')
@@ -155,33 +155,6 @@ function percent(value, digits = 1) {
   return number === null ? null : `${Number((number * 100).toFixed(digits))}%`;
 }
 
-function modelRowsWithBaseline(domain, coordinate) {
-  if (!coordinate || coordinate.coordinate_status !== 'materialized') return domain.modelRows;
-  const baseline = percent(coordinate.baseline?.probability);
-  if (!baseline) return domain.modelRows;
-  const horizon = asFinite(coordinate.baseline?.horizon_years);
-  const display = horizon === null ? baseline : `${baseline} at ${Number(horizon)} years`;
-  return domain.modelRows.map(([key, value]) =>
-    key === 'Baseline risk' ? [key, display] : [key, value]
-  );
-}
-
-// Physician-facing endpoint names. Governed target_id -> clinical language.
-const ENDPOINT_LABELS = {
-  PREVENT_ASCVD_FIRST_EVENT: 'ASCVD first event',
-  PREVENT_HF_FIRST_INCIDENT_EVENT: 'Heart failure first event',
-  KIDNEY_FAILURE_KRT_FIRST_EVENT: 'Kidney failure (KRT)',
-  KIDNEY_DISEASE_PROGRESSION_FIRST_EVENT: 'Kidney disease progression',
-  INCIDENT_T2DM: 'Incident type 2 diabetes',
-  LUNG_CANCER_INCIDENCE: 'Lung cancer incidence',
-  PROSTATE_HIGH_GRADE_CANCER_BIOPSY_DETECTION: 'High-grade prostate cancer on biopsy',
-  BREAST_CANCER_INCIDENCE: 'Breast cancer incidence',
-  COLORECTAL_CANCER_INCIDENCE: 'Colorectal cancer incidence',
-  DEMENTIA_INCIDENCE: 'Dementia incidence',
-  MIXED_KIDNEY_CV_DEATH_FIRST_EVENT: 'Kidney or CV death composite',
-  ALL_CAUSE_MORTALITY: 'All-cause mortality',
-};
-
 const STATE_LABELS = {
   calculated: null,
   not_applicable: 'Not applicable',
@@ -199,46 +172,120 @@ const DOMAIN_RUNTIME_KEYS = {
   cancer: 'cancer',
 };
 
-// Every governed baseline this domain's engines emitted, one row per endpoint x horizon.
-// Never collapses multiple endpoints into a single unlabeled number.
-function baselineOutputRows(model, domain) {
-  const domainKey = DOMAIN_RUNTIME_KEYS[domain.id] ?? domain.id;
-  return (model?.risk ?? [])
-    .filter((row) => row?.domain === domainKey && row?.target_id)
-    .map((row) => {
-      const probability = asFinite(row.probability);
-      const horizon = asFinite(row.horizon_years);
-      const state = row.state ?? row.calculation_state;
-      const value = probability !== null
-        ? percent(probability)
-        : (STATE_LABELS[state] ?? String(state ?? 'Not emitted').replaceAll('_', ' '));
-      return {
-        endpoint: ENDPOINT_LABELS[row.target_id] ?? String(row.target_id).replaceAll('_', ' ').toLowerCase(),
-        horizon: horizon === null ? null : Number(horizon),
-        value,
-        emitted: probability !== null,
-        modelVersion: row.model_version ?? null,
-        modelId: row.model_id ?? null,
-      };
-    })
-    .sort((a, b) => a.endpoint.localeCompare(b.endpoint) || ((a.horizon ?? 0) - (b.horizon ?? 0)));
+function domainRiskRows(model, domainId) {
+  const domainKey = DOMAIN_RUNTIME_KEYS[domainId] ?? domainId;
+  return (model?.risk ?? []).filter((row) => row?.domain === domainKey && row?.target_id);
 }
 
-function runtimeModelRows(model, domain) {
-  const runtimeIds = new Set(domain.runtimeIds ?? [domain.modelId]);
-  const emitted = (model?.risk ?? []).find((row) => runtimeIds.has(row.id));
-  if (!emitted) return [];
-  const rawValue = emitted.display ?? emitted.value;
-  const state = emitted.state ?? emitted.calculation_state;
-  const units = emitted.units ? ` ${emitted.units}` : '';
-  const output = rawValue !== undefined && rawValue !== null
-    ? `${rawValue}${units}`
-    : state ? String(state).replaceAll('_', ' ') : 'Not emitted';
-  return [
-    ['Backend output', output],
-    ['Runtime model', emitted.model_version ?? 'Not emitted'],
-    ['Runtime note', emitted.route_note ?? emitted.model_note ?? emitted.note ?? 'Not emitted'],
+function matchingRiskRow(rows, targetIds, horizon) {
+  const ids = Array.isArray(targetIds) ? targetIds : [targetIds];
+  return rows.find((row) => ids.includes(row.target_id)
+    && (horizon === undefined || asFinite(row.horizon_years) === horizon)) ?? null;
+}
+
+function rowState(row) {
+  return row?.state ?? row?.calculation_state ?? null;
+}
+
+function rowResult(row) {
+  if (!row) return { text: 'Not emitted', reason: '', cls: 'rs-baseline-unavailable' };
+  const probability = asFinite(row.probability);
+  const officialDisplayPercent = asFinite(row.official_display_percent);
+  if (probability !== null) {
+    return {
+      text: officialDisplayPercent === null ? percent(probability) : `${officialDisplayPercent}%`,
+      reason: '',
+      cls: '',
+    };
+  }
+  const state = rowState(row);
+  const reason = row.not_applicable_reason ?? row.unavailable_reason ?? row.blocked_reason ?? '';
+  return {
+    text: STATE_LABELS[state] ?? String(state ?? 'Not emitted').replaceAll('_', ' '),
+    reason,
+    cls: state === 'not_applicable'
+      ? 'rs-baseline-not-applicable'
+      : String(state ?? '').startsWith('blocked_') ? 'rs-baseline-blocked' : 'rs-baseline-unavailable',
+  };
+}
+
+function resultCell(row) {
+  const result = rowResult(row);
+  return `<td class="rs-baseline-value">${esc(result.text)}${result.reason ? `<span class="rs-state-reason">${esc(result.reason)}</span>` : ''}</td>`;
+}
+
+function baselineRow(cells, row) {
+  const cls = rowResult(row).cls;
+  return `<tr${cls ? ` class="${cls}"` : ''}>${cells}${resultCell(row)}</tr>`;
+}
+
+function modelIdentity(label, placeholder = false) {
+  return `${esc(label)}${placeholder ? '<span class="rs-model-status">Placeholder · pre-production</span>' : ''}`;
+}
+
+function baselineTable(model, domain) {
+  const rows = domainRiskRows(model, domain.id);
+  const table = (headers, body) => `<div class="rs-baselines-scroll"><table class="rs-baselines">
+      <thead><tr>${headers.map((header) => `<th scope="col">${esc(header)}</th>`).join('')}</tr></thead>
+      <tbody>${body}</tbody></table></div>`;
+
+  if (domain.id === 'cardiovascular') {
+    const definitions = [
+      ['Total CVD', 'PREVENT_TOTAL_CVD_FIRST_EVENT'],
+      ['ASCVD first event', 'PREVENT_ASCVD_FIRST_EVENT'],
+      ['Heart failure first event', 'PREVENT_HF_FIRST_INCIDENT_EVENT'],
+    ];
+    return table(['Endpoint', '10-year', '30-year'], definitions.map(([label, targetId]) => {
+      const at10 = matchingRiskRow(rows, targetId, 10);
+      const at30 = matchingRiskRow(rows, targetId, 30);
+      return `<tr><td>${esc(label)}</td>${resultCell(at10)}${resultCell(at30)}</tr>`;
+    }).join(''));
+  }
+
+  if (domain.id === 'kidney') {
+    const stageA = matchingRiskRow(rows, 'INCIDENT_CKD_EGFR_BELOW_60', 5);
+    const stageB2 = matchingRiskRow(rows, 'KIDNEY_FAILURE_KRT_FIRST_EVENT', 2);
+    const stageB5 = matchingRiskRow(rows, 'KIDNEY_FAILURE_KRT_FIRST_EVENT', 5);
+    return table(['Stage / model', 'Endpoint', '2-year', '5-year'],
+      `<tr${rowResult(stageA).cls ? ` class="${rowResult(stageA).cls}"` : ''}><td>A · CKD-PC</td><td>Incident CKD (eGFR &lt;60)</td><td class="rs-baseline-value rs-baseline-na">N/A</td>${resultCell(stageA)}</tr>`
+      + `<tr${rowResult(stageB2).cls || rowResult(stageB5).cls ? ` class="${rowResult(stageB2).cls || rowResult(stageB5).cls}"` : ''}><td>B · KFRE</td><td>Kidney failure / KRT</td>${resultCell(stageB2)}${resultCell(stageB5)}</tr>`);
+  }
+
+  if (domain.id === 'metabolic') {
+    const gate1 = matchingRiskRow(rows, 'INCIDENT_T2DM', 10);
+    const gate2 = matchingRiskRow(rows, 'METABOLIC_SEVERITY_VECTOR');
+    const variant = gate1?.model_variant ? ` variant ${gate1.model_variant}` : '';
+    return table(['Route', 'Output', 'Horizon', 'Result'],
+      baselineRow(`<td>Gate 1 · QDiabetes-2018${esc(variant)}</td><td>Incident type 2 diabetes</td><td class="rs-baseline-horizon">10 years</td>`, gate1)
+      + baselineRow('<td>Gate 2 · MetabolicSeverityVector</td><td>Metabolic severity vector</td><td class="rs-baseline-horizon">No risk horizon</td>', gate2));
+  }
+
+  if (domain.id === 'neurologic') {
+    const dementia = rows.find((row) =>
+      row.target_id === 'DEMENTIA_INCIDENCE'
+      && row.model_id === 'aleron_placeholder_dementia_10y.v1'
+      && row.model_class === 'placeholder_preproduction'
+      && asFinite(row.horizon_years) === 10
+    ) ?? null;
+    return table(['Model / method', 'Endpoint', 'Horizon', 'Output'],
+      baselineRow(`<td>${modelIdentity('Aleron placeholder-preproduction (not CogDrisk-ML)', true)}</td><td>Dementia incidence</td><td class="rs-baseline-horizon">10 years</td>`, dementia));
+  }
+
+  const cancerDefinitions = [
+    ['Breast', 'Tyrer–Cuzick / IBIS', 'Incidence', '10 years', ['BREAST_CANCER_INCIDENCE_10Y', 'BREAST_CANCER_INCIDENCE'], 10, false],
+    ['Breast', 'Tyrer–Cuzick / IBIS', 'Incidence', 'Lifetime', 'BREAST_CANCER_INCIDENCE_LIFETIME', null, false],
+    ['Lung', 'PLCOm2012', 'Incidence', '6 years', 'LUNG_CANCER_INCIDENCE', 6, false],
+    ['Colorectal', 'Aleron placeholder-preproduction (not QCancer)', 'Incidence', '10 years', 'COLORECTAL_CANCER_INCIDENCE', 10, true],
+    ['Prostate', 'PBCG', 'No cancer on biopsy', 'Not time-based', 'PROSTATE_NO_CANCER_BIOPSY_DETECTION', null, false],
+    ['Prostate', 'PBCG', 'Low-grade cancer on biopsy', 'Not time-based', 'PROSTATE_LOW_GRADE_CANCER_BIOPSY_DETECTION', null, false],
+    ['Prostate', 'PBCG', 'High-grade cancer on biopsy', 'Not time-based', 'PROSTATE_HIGH_GRADE_CANCER_BIOPSY_DETECTION', null, false],
   ];
+  return table(['Site', 'Model / method', 'Estimand', 'Horizon', 'Result'], cancerDefinitions.map(
+    ([site, method, estimand, horizonLabel, targetId, horizon, placeholder]) => {
+      const row = matchingRiskRow(rows, targetId, horizon);
+      return baselineRow(`<td>${esc(site)}</td><td>${modelIdentity(method, placeholder)}</td><td>${esc(estimand)}</td><td class="rs-baseline-horizon">${esc(horizonLabel)}</td>`, row);
+    }
+  ).join(''));
 }
 
 function arrCard(selected, coordinate) {
@@ -332,6 +379,10 @@ function domainBaselineProbability(model, domain) {
 // No table -> "Not graded". No emitted baseline -> "Not emitted".
 function domainTier(model, domain) {
   const entry = RISK_DOMAIN_TIERS[domain.id];
+  if (domain.id === 'cancer') {
+    const hasSiteResult = domainRiskRows(model, domain.id).some((row) => asFinite(row.probability) !== null);
+    return { label: hasSiteResult ? 'Site-specific' : 'Not graded', cls: 'none', probability: null, rank: -1 };
+  }
   const probability = domainBaselineProbability(model, domain);
   // No emitted baseline is a different fact from no governed tier table. Report the
   // more specific one first: nothing to grade beats nothing to grade it with.
@@ -355,12 +406,6 @@ export function riskSpaceView(model, state) {
   const domain = RISK_DOMAINS.find((d) => d.id === selectedDomainId) ?? triageDomain;
   const selected = findAction(domain, state.selectedRiskAction) ?? { action: domain.lanes[0].actions[0], lane: domain.lanes[0] };
   const selectedCoordinate = coordinateForAction(model, selected.action);
-  const domainCoordinate = selectedCoordinate ?? riskArrCoordinates(model).find((coordinate) =>
-    coordinate?.coordinate_status === 'materialized' &&
-    domain.lanes.some((lane) => lane.actions.some((action) =>
-      normalizedActionId(action.slug) === normalizedActionId(coordinate?.native_action_id)
-    ))
-  ) ?? null;
   const hasMaterializedCoordinate = riskArrCoordinates(model).some((coordinate) => coordinate?.coordinate_status === 'materialized');
 
   const tabs = RISK_DOMAINS.map((d) => {
@@ -368,26 +413,7 @@ export function riskSpaceView(model, state) {
     return `<button type="button" id="risk-domain-tab-${esc(d.id)}" data-rs-domain="${esc(d.id)}" data-risk-domain="${esc(d.modelId)}" role="tab" aria-controls="risk-domain-panel" aria-selected="${d.id === domain.id}" tabindex="${d.id === domain.id ? '0' : '-1'}" class="rs-tab${d.id === domain.id ? ' on' : ''}">${esc(d.title)}<span class="rs-tab-tier rs-tier-${tier.cls}">${esc(tier.label)}</span></button>`;
   }).join('');
 
-  const modelRows = [...modelRowsWithBaseline(domain, domainCoordinate), ...runtimeModelRows(model, domain)]
-    .map(([k, v]) => `<li><span class="k">${esc(k)}</span><span class="v">${esc(v)}</span></li>`).join('');
-
-  // Multi-endpoint baseline table: every governed output this domain's engines emitted.
-  const baselines = baselineOutputRows(model, domain);
-  const emittedCount = baselines.filter((row) => row.emitted).length;
-  const baselineHeadNote = baselines.length === 0
-    ? 'No governed baseline outputs for this domain'
-    : `${emittedCount} of ${baselines.length} endpoint${baselines.length === 1 ? '' : 's'} emitted`;
-  const baselineTable = baselines.length === 0
-    ? ''
-    : `<table class="rs-baselines"><caption class="rs-baselines-cap">Baseline risk by endpoint</caption>
-        <thead><tr><th scope="col">Endpoint</th><th scope="col">Horizon</th><th scope="col">Absolute risk</th></tr></thead>
-        <tbody>${
-          baselines.map((row) => `<tr${row.emitted ? '' : ' class="rs-baseline-blocked"'}>
-            <td>${esc(row.endpoint)}</td>
-            <td class="rs-baseline-horizon">${row.horizon === null ? '—' : `${row.horizon} yr`}</td>
-            <td class="rs-baseline-value">${esc(row.value)}</td>
-          </tr>`).join('')
-        }</tbody></table>`;
+  const domainBaselineTable = baselineTable(model, domain);
 
   const lanes = domain.lanes.map((laneDef) => {
     const { svg, positions } = laneSvg(domain, laneDef, selected.action.slug);
@@ -424,10 +450,9 @@ export function riskSpaceView(model, state) {
     <div class="rs-workspace" id="risk-domain-panel" role="tabpanel" aria-labelledby="risk-domain-tab-${esc(domain.id)}">
       <section class="rs-main">
         <div class="rs-domain-intro"><h2>${esc(domain.title)}</h2><span>${domain.ready} production ready</span></div>
-        <section class="panel rs-model"><div class="panel-head"><h3>Risk model state</h3><span>${esc(baselineHeadNote)}</span></div>
-          <div class="rs-model-block"><h4>${esc(domain.modelHead)}</h4>
-            ${baselineTable}
-            <ul class="rs-model-list">${modelRows}</ul>
+        <section class="panel rs-model"><div class="panel-head"><h3>Baseline risk</h3></div>
+          <div class="rs-model-block">
+            ${domainBaselineTable}
           </div>
         </section>
         ${arrCard(selected, selectedCoordinate)}

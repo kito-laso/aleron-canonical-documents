@@ -202,16 +202,20 @@ html,body{font-size:14px}
 .rs-tab.on,.rs-tab[aria-selected="true"]{background:var(--surface-inset);border-color:var(--surface-inset)}
 .rs-tab-count{font-family:var(--voice);font-variant-numeric:tabular-nums;font-size:12px;font-weight:400;color:var(--text-secondary)}
 .rs-tab-tier{font-family:var(--voice);font-size:12px;font-weight:400;color:var(--text-tertiary)}
-.rs-baselines{width:100%;border-collapse:collapse;margin:0 0 14px;font-family:var(--voice)}
-.rs-baselines-cap{text-align:left;font-size:12px;font-weight:500;color:var(--text-secondary);padding-bottom:6px}
+.rs-baselines-scroll{overflow-x:auto}
+.rs-baselines{width:100%;min-width:560px;border-collapse:collapse;margin:0;font-family:var(--voice)}
 .rs-baselines th{text-align:left;font-size:12px;font-weight:400;color:var(--text-tertiary);padding:0 12px 6px 0;border-bottom:1px solid var(--border-subtle)}
 .rs-baselines td{font-size:13px;font-weight:400;color:var(--text-primary);padding:7px 12px 7px 0;border-bottom:1px solid var(--border-subtle);vertical-align:baseline}
 .rs-baselines th:last-child,.rs-baselines td:last-child{text-align:right;padding-right:0}
-.rs-baselines th:nth-child(2),.rs-baselines td:nth-child(2){text-align:right;white-space:nowrap}
+.rs-baselines tbody tr:last-child td{border-bottom:0}
 .rs-baseline-horizon,.rs-baseline-value{font-variant-numeric:tabular-nums}
-.rs-baseline-value{font-weight:500}
+.rs-baseline-horizon{white-space:nowrap}
+.rs-baseline-value{text-align:right;font-weight:500}
+.rs-model-status{display:block;margin-top:3px;color:#59471f;font-size:12px;font-weight:500;letter-spacing:.01em}
+.rs-state-reason{display:block;max-width:360px;margin:3px 0 0 auto;font-size:12px;font-weight:400;line-height:1.35;color:var(--text-tertiary);white-space:normal}
 .rs-baseline-blocked td{color:var(--text-tertiary)}
 .rs-baseline-blocked .rs-baseline-value{font-weight:400;font-style:normal}
+.rs-baseline-not-applicable .rs-baseline-value,.rs-baseline-unavailable .rs-baseline-value,.rs-baseline-na{font-weight:400;color:var(--text-secondary)}
 .rs-tier-high{color:var(--signal-hazard);font-weight:500}
 .rs-tier-intermediate{color:var(--signal-advisory);font-weight:500}
 .rs-tier-borderline{color:var(--text-gold)}
