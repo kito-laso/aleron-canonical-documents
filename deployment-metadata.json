@@ -6,26 +6,26 @@
     "apps/physician/assets/fonts/PolySans-Median.ttf": "c1a5e1dcf63963a4eeb688ff65e919aaac3ee9f9958b57fee6ca3224df35a74f",
     "apps/physician/assets/fonts/PolySans-Neutral.ttf": "52d272ffe1967e5bfab79353a314044319d5a86b16e90b44e457055a1f119c17",
     "apps/physician/fixtures/physician_synthetic_case.json": "cd8999ada536e6b5116db72fa6b7da1c39d260e55c87d2998760ad2653df3aa3",
-    "apps/physician/index.html": "6f4f13be3e53dfa0bf8cc26922c8bcb2bfbc8a70904a3a98b7be0607d4487707",
+    "apps/physician/index.html": "75bbcca709dbd008090f97781a4beca827e045e65b0ce4a1693af3da5e9a85d1",
     "apps/physician/src/actionSpaceModel.js": "210c7db90c474b7a1278e5895cb5255ae2d91a97659b6b77fa1a8c39a630c47d",
     "apps/physician/src/apiClient.js": "7c7abb9f27b71a0db8077501745a91944f2a6ba02a53e26b3c72a0787b923707",
     "apps/physician/src/canonicalSources.js": "a6db276ff2385687592683c7e8658f03d8b30ac025fc3471a0a9eb4f43473bb2",
     "apps/physician/src/clinicalTrace.js": "69fda354f92062ea87cf532341571a5e4459b5551780ce522339a350d111bb2b",
     "apps/physician/src/clinicalValueFormat.js": "ea48ae4de285b74f2f9f8c52c0e578a857f62d61d57e21d334b59151f75adadc",
     "apps/physician/src/dashboardAdapter.js": "7543ee7910318249f80081ad56a04ce6c6ba47a89aeaf7d7cb0a4c5cc2eb55e4",
-    "apps/physician/src/dashboardApp.js": "25901027082533b52709a09864e189652d9f186889699c01f506c94a18e17c78",
+    "apps/physician/src/dashboardApp.js": "5548f6dac96c0ffbe7e82888f95535a63bb2a35fcaad4c1394e642e1fe2210bb",
     "apps/physician/src/fixtureLoader.js": "c8936233143348043f94a6ed8f4dbffbc0da3b5fcd96a7af674713a21c2e5a67",
     "apps/physician/src/journey.css": "fff96372dd2f9d9f4c7547a8c2616f71c5b55b163d9e69b41e80caadbf306e17",
-    "apps/physician/src/main.js": "5244bacb8cd25043815e1ffcfa293634ca840eccb7a15f532496c83edffb943a",
+    "apps/physician/src/main.js": "c0816f8a90de2eebab967eaab25ac9aa0459b4959a4d34e8be14c6150bc8ee83",
     "apps/physician/src/riskActionLibrary.js": "3d1c21a3252ce735916291006970dacd436daf0ba8e45bfc46884445173d2416",
-    "apps/physician/src/riskDomainTiers.js": "d3bf88ea612d2f107592dadc0773f1a0be33d6c507c3c3966ef84dca922ead8e",
-    "apps/physician/src/riskSpaceView.js": "db2e592b496c4e8a86076f22b8d0484d7a0f4170606779f03729bfd724448176",
+    "apps/physician/src/riskDomainTiers.js": "45d296f2dda2a5267eec43daa8811466f25d56d76b9b3f699ca37ea8637532b4",
+    "apps/physician/src/riskSpaceView.js": "c288c9c90de5f351bf7d829f4ac32ed9abf803a7b505ba13e10f92eb2ec0d3ad",
     "apps/physician/src/runtimeConfig.js": "b81e387a01c7b00a2380e2d61baaf136b377dd441e6011aaf58bc2897455ad82",
     "apps/physician/src/screeningView.js": "2ec45ea3ddc7da41849182930d7794ab098a65bdf2b79acc57333507a9167608",
     "apps/physician/src/styles.css": "e2e4bad7c6932b1292cf29a74a4fbf4a6fbba76be034b871a508bd70ead373e2",
     "apps/physician/src/wearableSummary.js": "7a662e5333d7d82e9cfd02320751a57887cb9c608f6d5536b23a862fbc45c8bf"
   },
-  "physician_tree_sha256": "9b339553e55282001e2cd7b4c8404d36c10e644b4f6c15ddc2c8f3df6524a294",
+  "physician_tree_sha256": "8b57984d10022fd2e06e73050d13d51ca6a96547a596beddd7213fc66ee9d6a0",
   "preserve_top_level": [
     "apps",
     "archive",
@@ -43,6 +43,6 @@
   "source_documents": {
     "engine/system-design/diagrams/aleron-repo-architecture.html": "ecaad647243e89bb942e2c86062804bff25fe9b99ad74af9c44c0f75e4982b86"
   },
-  "source_git_tree": "54f3de07114f16b51567d50ddc890a9fcbb68363",
-  "source_sha": "63008c1b2587871ab2457de3c54df3da8acb46d4"
+  "source_git_tree": "426c649764eb54a1e8136ff670cbdae79cc712eb",
+  "source_sha": "774304096e39e0d261e38ed08765a492efbd34c3"
 }

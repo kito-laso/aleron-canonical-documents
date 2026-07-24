@@ -1,5 +1,5 @@
-import { RISK_DOMAINS } from './riskActionLibrary.js?v=risk-domain-action-space-v9';
-import { RISK_DOMAIN_TIERS } from './riskDomainTiers.js?v=risk-domain-action-space-v9';
+import { RISK_DOMAINS } from './riskActionLibrary.js?v=risk-domain-action-space-v10';
+import { RISK_DOMAIN_TIERS } from './riskDomainTiers.js?v=risk-domain-action-space-v10';
 
 const esc = (value) => String(value ?? '')
   .replace(/&/g, '&amp;')
@@ -177,6 +177,15 @@ function domainRiskRows(model, domainId) {
   return (model?.risk ?? []).filter((row) => row?.domain === domainKey && row?.target_id);
 }
 
+function exactDementiaPlaceholder(rows) {
+  return rows.find((row) =>
+    row.target_id === 'DEMENTIA_INCIDENCE'
+    && row.model_id === 'aleron_placeholder_dementia_10y.v1'
+    && row.model_class === 'placeholder_preproduction'
+    && asFinite(row.horizon_years) === 10
+  ) ?? null;
+}
+
 function matchingRiskRow(rows, targetIds, horizon) {
   const ids = Array.isArray(targetIds) ? targetIds : [targetIds];
   return rows.find((row) => ids.includes(row.target_id)
@@ -261,12 +270,7 @@ function baselineTable(model, domain) {
   }
 
   if (domain.id === 'neurologic') {
-    const dementia = rows.find((row) =>
-      row.target_id === 'DEMENTIA_INCIDENCE'
-      && row.model_id === 'aleron_placeholder_dementia_10y.v1'
-      && row.model_class === 'placeholder_preproduction'
-      && asFinite(row.horizon_years) === 10
-    ) ?? null;
+    const dementia = exactDementiaPlaceholder(rows);
     return table(['Model / method', 'Endpoint', 'Horizon', 'Output'],
       baselineRow(`<td>${modelIdentity('Aleron placeholder-preproduction (not CogDrisk-ML)', true)}</td><td>Dementia incidence</td><td class="rs-baseline-horizon">10 years</td>`, dementia));
   }
@@ -350,6 +354,9 @@ const TIER_CLASS = {
   'Intermediate': 'intermediate',
   'High': 'high',
   'Below high-risk threshold': 'low',
+  'Below referral range': 'low',
+  'Within referral range': 'borderline',
+  'Above referral range': 'high',
 };
 const TIER_RANK = {
   'High': 3,
@@ -357,6 +364,9 @@ const TIER_RANK = {
   'Borderline': 1,
   'Low': 0,
   'Below high-risk threshold': 0,
+  'Below referral range': 0,
+  'Within referral range': 1,
+  'Above referral range': 2,
 };
 
 function domainBaselineProbability(model, domain) {
@@ -382,6 +392,16 @@ function domainTier(model, domain) {
   if (domain.id === 'cancer') {
     const hasSiteResult = domainRiskRows(model, domain.id).some((row) => asFinite(row.probability) !== null);
     return { label: hasSiteResult ? 'Site-specific' : 'Not graded', cls: 'none', probability: null, rank: -1 };
+  }
+  if (domain.id === 'neurologic') {
+    const placeholder = exactDementiaPlaceholder(domainRiskRows(model, domain.id));
+    const probability = asFinite(placeholder?.probability);
+    return {
+      label: probability === null ? 'Not emitted' : 'Pre-production',
+      cls: 'none',
+      probability,
+      rank: -1,
+    };
   }
   if (!entry || !entry.tiers) {
     const hasDomainResult = domainRiskRows(model, domain.id).some((row) => asFinite(row.probability) !== null);

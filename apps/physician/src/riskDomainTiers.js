@@ -1,5 +1,5 @@
 // GENERATED FILE — do not edit by hand.
-// Source: data/methods/risk_domain_risk_tiers.v1.json sha256:a8233dc30abb9d4a79e61a898852536de7ecc9092259fb7c07ff4a2cdb16ce92
+// Source: data/methods/risk_domain_risk_tiers.v1.json sha256:7065ce5e5756d4db1dfd082a807ed57cecca2c5a5153b600314b464482a287b5
 // Regenerate: python3 apps/physician/tools/generate_risk_domain_tiers.py
 export const RISK_DOMAIN_TIERS = {
   "cardiovascular": {
@@ -48,8 +48,22 @@ export const RISK_DOMAIN_TIERS = {
     "engine": "CKD / KFRE",
     "target_id": "KIDNEY_FAILURE_KRT_FIRST_EVENT",
     "horizon_years": 5,
-    "tiers": null,
-    "source": "KDIGO risk is a GFR-by-albuminuria grid, not a probability tier table; no governed probability tiers to display."
+    "tiers": [
+      {
+        "label": "Below referral range",
+        "lt": 0.03
+      },
+      {
+        "label": "Within referral range",
+        "gte": 0.03,
+        "lt": 0.05
+      },
+      {
+        "label": "Above referral range",
+        "gte": 0.05
+      }
+    ],
+    "source": "KDIGO 2024 CKD Guideline Practice Point 5.1.1: a 5-year kidney failure risk of 3% to 5% can be used to determine need for nephrology referral in addition to eGFR, ACR, and other clinical considerations. Labels report position relative to that published referral range; they are not invented low/moderate/high risk categories."
   },
   "neurologic": {
     "engine": "CogDRISK",
