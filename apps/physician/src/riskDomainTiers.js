@@ -1,5 +1,5 @@
 // GENERATED FILE — do not edit by hand.
-// Source: data/methods/risk_domain_risk_tiers.v1.json sha256:7065ce5e5756d4db1dfd082a807ed57cecca2c5a5153b600314b464482a287b5
+// Source: data/methods/risk_domain_risk_tiers.v1.json sha256:affd756868d045110796ba505920deb7f6fc7f036ae53cfefeb59a89f59f7533
 // Regenerate: python3 apps/physician/tools/generate_risk_domain_tiers.py
 export const RISK_DOMAIN_TIERS = {
   "cardiovascular": {
@@ -66,11 +66,30 @@ export const RISK_DOMAIN_TIERS = {
     "source": "KDIGO 2024 CKD Guideline Practice Point 5.1.1: a 5-year kidney failure risk of 3% to 5% can be used to determine need for nephrology referral in addition to eGFR, ACR, and other clinical considerations. Labels report position relative to that published referral range; they are not invented low/moderate/high risk categories."
   },
   "neurologic": {
-    "engine": "CogDRISK",
+    "engine": "Aleron dementia 10-year placeholder",
     "target_id": "DEMENTIA_INCIDENCE",
-    "horizon_years": null,
-    "tiers": null,
-    "source": "No established published probability tier thresholds for CogDRISK."
+    "horizon_years": 10,
+    "tiers": [
+      {
+        "label": "Low",
+        "lt": 0.01
+      },
+      {
+        "label": "Moderate",
+        "gte": 0.01,
+        "lt": 0.03
+      },
+      {
+        "label": "Elevated",
+        "gte": 0.03,
+        "lt": 0.05
+      },
+      {
+        "label": "High",
+        "gte": 0.05
+      }
+    ],
+    "source": "PRODUCT_PLACEHOLDER_UI_RULE, Jason Yim 2026-07-24: treat the authorized placeholder like the future executable model so the representative UX and UI can be completed. These provisional 10-year bands are not CogDrisk-ML thresholds, are not clinically validated, and apply only to the exact clinical-use-prohibited placeholder identity."
   },
   "cancer": {
     "engine": "Site-specific engines (BCRAT, PLCO, PBCG)",

@@ -1,5 +1,5 @@
-import { RISK_DOMAINS } from './riskActionLibrary.js?v=risk-domain-action-space-v10';
-import { RISK_DOMAIN_TIERS } from './riskDomainTiers.js?v=risk-domain-action-space-v10';
+import { RISK_DOMAINS } from './riskActionLibrary.js?v=risk-domain-action-space-v11';
+import { RISK_DOMAIN_TIERS } from './riskDomainTiers.js?v=risk-domain-action-space-v11';
 
 const esc = (value) => String(value ?? '')
   .replace(/&/g, '&amp;')
@@ -353,6 +353,8 @@ const TIER_CLASS = {
   'Borderline': 'borderline',
   'Intermediate': 'intermediate',
   'High': 'high',
+  'Moderate': 'borderline',
+  'Elevated': 'intermediate',
   'Below high-risk threshold': 'low',
   'Below referral range': 'low',
   'Within referral range': 'borderline',
@@ -360,6 +362,8 @@ const TIER_CLASS = {
 };
 const TIER_RANK = {
   'High': 3,
+  'Elevated': 2,
+  'Moderate': 1,
   'Intermediate': 2,
   'Borderline': 1,
   'Low': 0,
@@ -379,6 +383,8 @@ function domainBaselineProbability(model, domain) {
   const row = (model?.risk ?? []).find((candidate) =>
     candidate?.domain === domainKey &&
     candidate?.target_id === targetId &&
+    (!entry?.model_id || candidate?.model_id === entry.model_id) &&
+    (!entry?.model_class || candidate?.model_class === entry.model_class) &&
     (horizonYears === undefined || asFinite(candidate?.horizon_years) === horizonYears) &&
     asFinite(candidate?.probability) !== null
   );
@@ -393,16 +399,7 @@ function domainTier(model, domain) {
     const hasSiteResult = domainRiskRows(model, domain.id).some((row) => asFinite(row.probability) !== null);
     return { label: hasSiteResult ? 'Site-specific' : 'Not graded', cls: 'none', probability: null, rank: -1 };
   }
-  if (domain.id === 'neurologic') {
-    const placeholder = exactDementiaPlaceholder(domainRiskRows(model, domain.id));
-    const probability = asFinite(placeholder?.probability);
-    return {
-      label: probability === null ? 'Not emitted' : 'Pre-production',
-      cls: 'none',
-      probability,
-      rank: -1,
-    };
-  }
+
   if (!entry || !entry.tiers) {
     const hasDomainResult = domainRiskRows(model, domain.id).some((row) => asFinite(row.probability) !== null);
     return { label: hasDomainResult ? 'Not graded' : 'Not emitted', cls: 'none', probability: null, rank: -1 };

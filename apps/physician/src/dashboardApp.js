@@ -2,7 +2,7 @@ import { displayValue } from './dashboardAdapter.js?v=physician-v1-no-vitality';
 import { formatTrendLine } from './wearableSummary.js?v=physician-v1-no-vitality';
 import { getOverrideTaxonomy } from './apiClient.js';
 import { recommendationTraceHTML, releasePreviewHTML } from './clinicalTrace.js?v=physician-v1-no-vitality';
-import { riskSpaceView } from './riskSpaceView.js?v=risk-domain-action-space-v10';
+import { riskSpaceView } from './riskSpaceView.js?v=risk-domain-action-space-v11';
 import { screeningView } from './screeningView.js?v=physician-screening-v1';
 
 // Vitality is out of scope for V1 (Jason, 2026-07-24). The tab is removed from
