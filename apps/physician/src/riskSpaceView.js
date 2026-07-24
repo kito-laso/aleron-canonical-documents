@@ -1,5 +1,5 @@
-import { RISK_DOMAINS } from './riskActionLibrary.js?v=risk-domain-action-space-v8';
-import { RISK_DOMAIN_TIERS } from './riskDomainTiers.js?v=risk-domain-action-space-v8';
+import { RISK_DOMAINS } from './riskActionLibrary.js?v=risk-domain-action-space-v9';
+import { RISK_DOMAIN_TIERS } from './riskDomainTiers.js?v=risk-domain-action-space-v9';
 
 const esc = (value) => String(value ?? '')
   .replace(/&/g, '&amp;')
@@ -383,11 +383,15 @@ function domainTier(model, domain) {
     const hasSiteResult = domainRiskRows(model, domain.id).some((row) => asFinite(row.probability) !== null);
     return { label: hasSiteResult ? 'Site-specific' : 'Not graded', cls: 'none', probability: null, rank: -1 };
   }
+  if (!entry || !entry.tiers) {
+    const hasDomainResult = domainRiskRows(model, domain.id).some((row) => asFinite(row.probability) !== null);
+    return { label: hasDomainResult ? 'Not graded' : 'Not emitted', cls: 'none', probability: null, rank: -1 };
+  }
   const probability = domainBaselineProbability(model, domain);
   // No emitted baseline is a different fact from no governed tier table. Report the
   // more specific one first: nothing to grade beats nothing to grade it with.
   if (probability === null) return { label: 'Not emitted', cls: 'none', probability: null, rank: -1 };
-  if (!entry || !entry.tiers) return { label: 'Not graded', cls: 'none', probability, rank: -1 };
+
   const tier = entry.tiers.find((t) =>
     (t.lt === undefined || probability < t.lt) && (t.gte === undefined || probability >= t.gte)
   );
