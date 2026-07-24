@@ -202,6 +202,16 @@ html,body{font-size:14px}
 .rs-tab.on,.rs-tab[aria-selected="true"]{background:var(--surface-inset);border-color:var(--surface-inset)}
 .rs-tab-count{font-family:var(--voice);font-variant-numeric:tabular-nums;font-size:12px;font-weight:400;color:var(--text-secondary)}
 .rs-tab-tier{font-family:var(--voice);font-size:12px;font-weight:400;color:var(--text-tertiary)}
+.rs-baselines{width:100%;border-collapse:collapse;margin:0 0 14px;font-family:var(--voice)}
+.rs-baselines-cap{text-align:left;font-size:12px;font-weight:500;color:var(--text-secondary);padding-bottom:6px}
+.rs-baselines th{text-align:left;font-size:12px;font-weight:400;color:var(--text-tertiary);padding:0 12px 6px 0;border-bottom:1px solid var(--border-subtle)}
+.rs-baselines td{font-size:13px;font-weight:400;color:var(--text-primary);padding:7px 12px 7px 0;border-bottom:1px solid var(--border-subtle);vertical-align:baseline}
+.rs-baselines th:last-child,.rs-baselines td:last-child{text-align:right;padding-right:0}
+.rs-baselines th:nth-child(2),.rs-baselines td:nth-child(2){text-align:right;white-space:nowrap}
+.rs-baseline-horizon,.rs-baseline-value{font-variant-numeric:tabular-nums}
+.rs-baseline-value{font-weight:500}
+.rs-baseline-blocked td{color:var(--text-tertiary)}
+.rs-baseline-blocked .rs-baseline-value{font-weight:400;font-style:normal}
 .rs-tier-high{color:var(--signal-hazard);font-weight:500}
 .rs-tier-intermediate{color:var(--signal-advisory);font-weight:500}
 .rs-tier-borderline{color:var(--text-gold)}

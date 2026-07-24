@@ -2,7 +2,7 @@ import { displayValue } from './dashboardAdapter.js?v=physician-care-vitality-v1
 import { formatTrendLine } from './wearableSummary.js?v=physician-care-vitality-v1';
 import { getOverrideTaxonomy } from './apiClient.js';
 import { recommendationTraceHTML, releasePreviewHTML } from './clinicalTrace.js?v=physician-care-vitality-v1';
-import { riskSpaceView } from './riskSpaceView.js?v=risk-domain-action-space-v3';
+import { riskSpaceView } from './riskSpaceView.js?v=risk-domain-action-space-v4';
 import { screeningView } from './screeningView.js?v=physician-screening-v1';
 
 const TAB_LABELS = [

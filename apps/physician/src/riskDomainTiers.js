@@ -1,9 +1,11 @@
 // GENERATED FILE — do not edit by hand.
-// Source: data/methods/risk_domain_risk_tiers.v1.json sha256:1754114ceb25efa774c61da4f9a1e0de617d4577b36545ad85acbeafc317e1c4
+// Source: data/methods/risk_domain_risk_tiers.v1.json sha256:a8233dc30abb9d4a79e61a898852536de7ecc9092259fb7c07ff4a2cdb16ce92
 // Regenerate: python3 apps/physician/tools/generate_risk_domain_tiers.py
 export const RISK_DOMAIN_TIERS = {
   "cardiovascular": {
     "engine": "PREVENT ASCVD 10-year",
+    "target_id": "PREVENT_ASCVD_FIRST_EVENT",
+    "horizon_years": 10,
     "tiers": [
       {
         "label": "Low",
@@ -28,6 +30,8 @@ export const RISK_DOMAIN_TIERS = {
   },
   "metabolic": {
     "engine": "QDiabetes 10-year",
+    "target_id": "INCIDENT_T2DM",
+    "horizon_years": 10,
     "tiers": [
       {
         "label": "Below high-risk threshold",
@@ -42,16 +46,22 @@ export const RISK_DOMAIN_TIERS = {
   },
   "kidney": {
     "engine": "CKD / KFRE",
+    "target_id": "KIDNEY_FAILURE_KRT_FIRST_EVENT",
+    "horizon_years": 5,
     "tiers": null,
     "source": "KDIGO risk is a GFR-by-albuminuria grid, not a probability tier table; no governed probability tiers to display."
   },
   "neurologic": {
     "engine": "CogDRISK",
+    "target_id": "DEMENTIA_INCIDENCE",
+    "horizon_years": null,
     "tiers": null,
     "source": "No established published probability tier thresholds for CogDRISK."
   },
   "cancer": {
     "engine": "Site-specific engines (BCRAT, PLCO, PBCG)",
+    "target_id": null,
+    "horizon_years": null,
     "tiers": null,
     "source": "Thresholds are site-specific (e.g., Gail 5-year >=1.67% breast chemoprevention; PLCOm2012 6-year >=1.51% lung screening) and cannot be collapsed into one honest domain tier."
   }

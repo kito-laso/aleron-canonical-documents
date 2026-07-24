@@ -12,7 +12,7 @@ import {
   startPhysicianReview
 } from './apiClient.js';
 import { adaptPhysicianCase, artifactBindsCurrentLineage, buildReleasePreviewRequest, releaseIdentifier } from './dashboardAdapter.js?v=physician-care-vitality-v1';
-import { decisionReasonOptionsHTML, renderDashboard, renderEmptyStaging, renderFatalError } from './dashboardApp.js?v=risk-domain-action-space-v3';
+import { decisionReasonOptionsHTML, renderDashboard, renderEmptyStaging, renderFatalError } from './dashboardApp.js?v=risk-domain-action-space-v4';
 
 const app = document.querySelector('#app');
 const state = {

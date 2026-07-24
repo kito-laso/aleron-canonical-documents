@@ -1,5 +1,5 @@
-import { RISK_DOMAINS } from './riskActionLibrary.js?v=risk-domain-action-space-v3';
-import { RISK_DOMAIN_TIERS } from './riskDomainTiers.js?v=risk-domain-action-space-v3';
+import { RISK_DOMAINS } from './riskActionLibrary.js?v=risk-domain-action-space-v4';
+import { RISK_DOMAIN_TIERS } from './riskDomainTiers.js?v=risk-domain-action-space-v4';
 
 const esc = (value) => String(value ?? '')
   .replace(/&/g, '&amp;')
@@ -145,6 +145,7 @@ function coordinateForAction(model, action) {
 }
 
 function asFinite(value) {
+  if (value === null || value === undefined || value === '') return null;
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
 }
@@ -163,6 +164,64 @@ function modelRowsWithBaseline(domain, coordinate) {
   return domain.modelRows.map(([key, value]) =>
     key === 'Baseline risk' ? [key, display] : [key, value]
   );
+}
+
+// Physician-facing endpoint names. Governed target_id -> clinical language.
+const ENDPOINT_LABELS = {
+  PREVENT_ASCVD_FIRST_EVENT: 'ASCVD first event',
+  PREVENT_HF_FIRST_INCIDENT_EVENT: 'Heart failure first event',
+  KIDNEY_FAILURE_KRT_FIRST_EVENT: 'Kidney failure (KRT)',
+  KIDNEY_DISEASE_PROGRESSION_FIRST_EVENT: 'Kidney disease progression',
+  INCIDENT_T2DM: 'Incident type 2 diabetes',
+  LUNG_CANCER_INCIDENCE: 'Lung cancer incidence',
+  PROSTATE_HIGH_GRADE_CANCER_BIOPSY_DETECTION: 'High-grade prostate cancer on biopsy',
+  BREAST_CANCER_INCIDENCE: 'Breast cancer incidence',
+  COLORECTAL_CANCER_INCIDENCE: 'Colorectal cancer incidence',
+  DEMENTIA_INCIDENCE: 'Dementia incidence',
+  MIXED_KIDNEY_CV_DEATH_FIRST_EVENT: 'Kidney or CV death composite',
+  ALL_CAUSE_MORTALITY: 'All-cause mortality',
+};
+
+const STATE_LABELS = {
+  calculated: null,
+  not_applicable: 'Not applicable',
+  model_unavailable: 'Model unavailable',
+  directional_score_unavailable: 'Directional only',
+  blocked_missing_inputs: 'Missing inputs',
+  blocked_invalid_inputs: 'Invalid inputs',
+};
+
+const DOMAIN_RUNTIME_KEYS = {
+  cardiovascular: 'cardiovascular',
+  metabolic: 'metabolic',
+  kidney: 'kidney',
+  neurologic: 'neuro',
+  cancer: 'cancer',
+};
+
+// Every governed baseline this domain's engines emitted, one row per endpoint x horizon.
+// Never collapses multiple endpoints into a single unlabeled number.
+function baselineOutputRows(model, domain) {
+  const domainKey = DOMAIN_RUNTIME_KEYS[domain.id] ?? domain.id;
+  return (model?.risk ?? [])
+    .filter((row) => row?.domain === domainKey && row?.target_id)
+    .map((row) => {
+      const probability = asFinite(row.probability);
+      const horizon = asFinite(row.horizon_years);
+      const state = row.state ?? row.calculation_state;
+      const value = probability !== null
+        ? percent(probability)
+        : (STATE_LABELS[state] ?? String(state ?? 'Not emitted').replaceAll('_', ' '));
+      return {
+        endpoint: ENDPOINT_LABELS[row.target_id] ?? String(row.target_id).replaceAll('_', ' ').toLowerCase(),
+        horizon: horizon === null ? null : Number(horizon),
+        value,
+        emitted: probability !== null,
+        modelVersion: row.model_version ?? null,
+        modelId: row.model_id ?? null,
+      };
+    })
+    .sort((a, b) => a.endpoint.localeCompare(b.endpoint) || ((a.horizon ?? 0) - (b.horizon ?? 0)));
 }
 
 function runtimeModelRows(model, domain) {
@@ -254,22 +313,30 @@ const TIER_RANK = {
 };
 
 function domainBaselineProbability(model, domain) {
-  const coordinate = riskArrCoordinates(model).find((c) =>
-    asFinite(c?.baseline?.probability) !== null &&
-    domain.lanes.some((lane) => lane.actions.some((action) =>
-      normalizedActionId(action.slug) === normalizedActionId(c?.native_action_id)
-    ))
+  const entry = RISK_DOMAIN_TIERS[domain.id];
+  const targetId = entry?.target_id;
+  const horizonYears = entry?.horizon_years;
+  const domainKey = DOMAIN_RUNTIME_KEYS[domain.id] ?? domain.id;
+  // Tier grades the domain's declared primary endpoint at its declared horizon.
+  // Never grades whichever coordinate happens to appear first.
+  const row = (model?.risk ?? []).find((candidate) =>
+    candidate?.domain === domainKey &&
+    candidate?.target_id === targetId &&
+    (horizonYears === undefined || asFinite(candidate?.horizon_years) === horizonYears) &&
+    asFinite(candidate?.probability) !== null
   );
-  return coordinate ? asFinite(coordinate.baseline.probability) : null;
+  return row ? asFinite(row.probability) : null;
 }
 
 // Tier labels come only from the governed tier artifact (RISK_DOMAIN_TIERS).
 // No table -> "Not graded". No emitted baseline -> "Not emitted".
 function domainTier(model, domain) {
   const entry = RISK_DOMAIN_TIERS[domain.id];
-  if (!entry || !entry.tiers) return { label: 'Not graded', cls: 'none', probability: null, rank: -1 };
   const probability = domainBaselineProbability(model, domain);
+  // No emitted baseline is a different fact from no governed tier table. Report the
+  // more specific one first: nothing to grade beats nothing to grade it with.
   if (probability === null) return { label: 'Not emitted', cls: 'none', probability: null, rank: -1 };
+  if (!entry || !entry.tiers) return { label: 'Not graded', cls: 'none', probability, rank: -1 };
   const tier = entry.tiers.find((t) =>
     (t.lt === undefined || probability < t.lt) && (t.gte === undefined || probability >= t.gte)
   );
@@ -303,6 +370,24 @@ export function riskSpaceView(model, state) {
 
   const modelRows = [...modelRowsWithBaseline(domain, domainCoordinate), ...runtimeModelRows(model, domain)]
     .map(([k, v]) => `<li><span class="k">${esc(k)}</span><span class="v">${esc(v)}</span></li>`).join('');
+
+  // Multi-endpoint baseline table: every governed output this domain's engines emitted.
+  const baselines = baselineOutputRows(model, domain);
+  const emittedCount = baselines.filter((row) => row.emitted).length;
+  const baselineHeadNote = baselines.length === 0
+    ? 'No governed baseline outputs for this domain'
+    : `${emittedCount} of ${baselines.length} endpoint${baselines.length === 1 ? '' : 's'} emitted`;
+  const baselineTable = baselines.length === 0
+    ? ''
+    : `<table class="rs-baselines"><caption class="rs-baselines-cap">Baseline risk by endpoint</caption>
+        <thead><tr><th scope="col">Endpoint</th><th scope="col">Horizon</th><th scope="col">Absolute risk</th></tr></thead>
+        <tbody>${
+          baselines.map((row) => `<tr${row.emitted ? '' : ' class="rs-baseline-blocked"'}>
+            <td>${esc(row.endpoint)}</td>
+            <td class="rs-baseline-horizon">${row.horizon === null ? '—' : `${row.horizon} yr`}</td>
+            <td class="rs-baseline-value">${esc(row.value)}</td>
+          </tr>`).join('')
+        }</tbody></table>`;
 
   const lanes = domain.lanes.map((laneDef) => {
     const { svg, positions } = laneSvg(domain, laneDef, selected.action.slug);
@@ -339,8 +424,11 @@ export function riskSpaceView(model, state) {
     <div class="rs-workspace" id="risk-domain-panel" role="tabpanel" aria-labelledby="risk-domain-tab-${esc(domain.id)}">
       <section class="rs-main">
         <div class="rs-domain-intro"><h2>${esc(domain.title)}</h2><span>${domain.ready} production ready</span></div>
-        <section class="panel rs-model"><div class="panel-head"><h3>Risk model state</h3></div>
-          <div class="rs-model-block"><h4>${esc(domain.modelHead)}</h4><ul class="rs-model-list">${modelRows}</ul></div>
+        <section class="panel rs-model"><div class="panel-head"><h3>Risk model state</h3><span>${esc(baselineHeadNote)}</span></div>
+          <div class="rs-model-block"><h4>${esc(domain.modelHead)}</h4>
+            ${baselineTable}
+            <ul class="rs-model-list">${modelRows}</ul>
+          </div>
         </section>
         ${arrCard(selected, selectedCoordinate)}
         <section class="panel rs-space">
