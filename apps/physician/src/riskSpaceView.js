@@ -1,5 +1,5 @@
-import { RISK_DOMAINS } from './riskActionLibrary.js?v=risk-domain-action-space-v4';
-import { RISK_DOMAIN_TIERS } from './riskDomainTiers.js?v=risk-domain-action-space-v4';
+import { RISK_DOMAINS } from './riskActionLibrary.js?v=risk-domain-action-space-v5';
+import { RISK_DOMAIN_TIERS } from './riskDomainTiers.js?v=risk-domain-action-space-v5';
 
 const esc = (value) => String(value ?? '')
   .replace(/&/g, '&amp;')
