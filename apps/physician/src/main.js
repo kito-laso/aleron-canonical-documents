@@ -11,7 +11,7 @@ import {
   requestReleasePreview,
   startPhysicianReview
 } from './apiClient.js';
-import { adaptPhysicianCase, artifactBindsCurrentLineage, buildReleasePreviewRequest, releaseIdentifier } from './dashboardAdapter.js?v=physician-care-vitality-v1';
+import { adaptPhysicianCase, artifactBindsCurrentLineage, buildReleasePreviewRequest, releaseIdentifier } from './dashboardAdapter.js?v=physician-v1-no-vitality';
 import { decisionReasonOptionsHTML, renderDashboard, renderEmptyStaging, renderFatalError } from './dashboardApp.js?v=risk-domain-action-space-v4';
 
 const app = document.querySelector('#app');

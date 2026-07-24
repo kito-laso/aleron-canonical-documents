@@ -1,15 +1,17 @@
-import { displayValue } from './dashboardAdapter.js?v=physician-care-vitality-v1';
-import { formatTrendLine } from './wearableSummary.js?v=physician-care-vitality-v1';
+import { displayValue } from './dashboardAdapter.js?v=physician-v1-no-vitality';
+import { formatTrendLine } from './wearableSummary.js?v=physician-v1-no-vitality';
 import { getOverrideTaxonomy } from './apiClient.js';
-import { recommendationTraceHTML, releasePreviewHTML } from './clinicalTrace.js?v=physician-care-vitality-v1';
+import { recommendationTraceHTML, releasePreviewHTML } from './clinicalTrace.js?v=physician-v1-no-vitality';
 import { riskSpaceView } from './riskSpaceView.js?v=risk-domain-action-space-v4';
 import { screeningView } from './screeningView.js?v=physician-screening-v1';
 
+// Vitality is out of scope for V1 (Jason, 2026-07-24). The tab is removed from
+// navigation so the surface is unreachable; vitalityView() and its adapter path
+// remain in place, unrouted, so the section can be restored by re-adding the label.
 const TAB_LABELS = [
   ['patient-data', 'Patient Data'],
   ['risk', 'Risk'],
   ['screening', 'Screening'],
-  ['vitality', 'Vitality'],
   ['care-plan', 'Care Plan'],
   ['journal', 'Journal'],
   ['aleron-ai', 'Aleron AI']
@@ -897,7 +899,8 @@ function aiView(model) {
 function activeView(model, state) {
   if (state.activeTab === 'risk') return modelsView(model, state);
   if (state.activeTab === 'screening') return screeningView(state);
-  if (state.activeTab === 'vitality') return vitalityView(model, state);
+  // 'vitality' is deliberately unrouted for V1; a stale persisted tab value falls
+  // through to patient data rather than rendering an unreachable surface.
   if (state.activeTab === 'care-plan') return carePlanView(model, state);
   if (state.activeTab === 'journal') return journalView(model);
   if (state.activeTab === 'aleron-ai') return aiView(model);
