@@ -1,9 +1,9 @@
-import { displayValue } from './dashboardAdapter.js?v=physician-v1-no-vitality';
-import { formatTrendLine } from './wearableSummary.js?v=physician-v1-no-vitality';
+import { displayValue } from './dashboardAdapter.js?v=physician-design-basics-v1';
+import { formatTrendLine } from './wearableSummary.js?v=physician-design-basics-v1';
 import { getOverrideTaxonomy } from './apiClient.js';
-import { recommendationTraceHTML, releasePreviewHTML } from './clinicalTrace.js?v=physician-v1-no-vitality';
-import { riskSpaceView } from './riskSpaceView.js?v=risk-domain-action-space-v11';
-import { screeningView } from './screeningView.js?v=physician-screening-v1';
+import { recommendationTraceHTML, releasePreviewHTML } from './clinicalTrace.js?v=physician-design-basics-v1';
+import { riskSpaceView } from './riskSpaceView.js?v=physician-design-basics-v1';
+import { screeningView } from './screeningView.js?v=physician-design-basics-v1';
 
 // Vitality is out of scope for V1 (Jason, 2026-07-24). The tab is removed from
 // navigation so the surface is unreachable; vitalityView() and its adapter path
@@ -18,7 +18,9 @@ const TAB_LABELS = [
 ];
 
 export function esc(value) {
-  return String(value ?? '').replace(/[&<>'"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[character]);
+  return String(value ?? '')
+    .replace(/[—–]/g, '-')
+    .replace(/[&<>'"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[character]);
 }
 
 export function renderFatalError(app, title, errorMessage) {
@@ -729,10 +731,10 @@ function analysisGate(model, state) {
   const body = released
     ? 'This case was released to the patient. Structured decisions are closed; review content remains visible for audit.'
     : ready
-    ? 'Canonical analysis is complete enough to begin physician review.'
+    ? 'Ready for physician review.'
     : (details.join(' · ') || 'readiness not ready');
   return `<section class="rail-card" data-analysis-gate>
-    <span class="section-label">Canonical analysis · ${esc(stateText(analysis.status))}</span>
+    <span class="section-label">Analysis ${esc(stateText(analysis.status))}</span>
     <h2>${esc(headline)}</h2>
     <p class="${ready || released ? 'status-line' : 'boundary-banner signal-hazard'}">${esc(body)}</p>
     ${modelVersionSummary(model)}
@@ -749,6 +751,29 @@ function carePlanSource(item) {
     ?? null;
   if (!source) return 'Source not emitted';
   return typeof source === 'string' ? source : String(source.source ?? source);
+}
+
+function carePlanDisplayTitle(item) {
+  const explicit = item.title ?? item.label;
+  if (explicit) return explicit;
+  const id = String(item.id ?? 'Clinical item');
+  const known = {
+    act_egfr_dose_review: 'Review renal medication dosing',
+    act_influenza_pneumococcal_vax_ckd: 'Review influenza and pneumococcal vaccination',
+  };
+  return known[id] ?? stateText(id.replace(/^act_/, ''));
+}
+
+function carePlanSourceLabel(item) {
+  const source = carePlanSource(item);
+  const known = {
+    action_library: 'Action library',
+    genetic_mustdo_library: 'Genetics protocol',
+    vitality_protocol: 'Vitality protocol',
+    workflow_release_policy: 'Release policy',
+    synthetic_e2e_nonclinical: 'Synthetic staging',
+  };
+  return known[source] ?? stateText(source);
 }
 
 function carePlanNoteValue(value) {
@@ -813,7 +838,7 @@ function carePlanView(model, state) {
   const taxonomy = getOverrideTaxonomy();
   const items = [...model.carePlan.required.map((item) => ({ ...item, planKind: 'problem' })), ...model.carePlan.actions.map((item) => ({ ...item, planKind: item.kind === 'diagnostic' ? 'order' : 'action' }))];
   const selected = items.find((item) => item.id === state.selectedPlanItemId) ?? null;
-  const selectButton = (item, index, prefix) => `<button type="button" class="plan-item ${selected?.id === item.id ? 'selected' : ''}" data-plan-item="${esc(item.id)}" aria-pressed="${selected?.id === item.id}"><span class="plan-item-number">${prefix}${String(index + 1).padStart(2, '0')}</span><span><strong>${esc(item.title ?? item.label ?? item.id)}</strong><small>${esc(item.reason ?? item.why_it_matters ?? item.why_now ?? 'Clinical rationale not emitted.')}</small><em>${esc(carePlanSource(item))}${item.persisted_override_id ? ` · persisted ${esc(stateText(item.physician_decision))}` : ''}</em></span></button>`;
+  const selectButton = (item, index, prefix) => `<button type="button" class="plan-item ${selected?.id === item.id ? 'selected' : ''}" data-plan-item="${esc(item.id)}" aria-pressed="${selected?.id === item.id}"><span class="plan-item-number">${prefix}${String(index + 1).padStart(2, '0')}</span><span><strong>${esc(carePlanDisplayTitle(item))}</strong><small>${esc(item.reason ?? item.why_it_matters ?? item.why_now ?? 'Clinical rationale not emitted.')}</small><em title="${esc(carePlanSource(item))}">${esc(carePlanSourceLabel(item))}${item.persisted_override_id ? ` · persisted ${esc(stateText(item.physician_decision))}` : ''}</em></span></button>`;
   const required = model.carePlan.required.map((item, index) => selectButton({ ...item, planKind: 'problem' }, index, 'P')).join('');
   const actions = model.carePlan.actions.map((item, index) => selectButton({ ...item, planKind: item.kind === 'diagnostic' ? 'order' : 'action' }, index, '')).join('');
   const noteHTML = carePlanNoteHTML(model.carePlan.note);
@@ -837,12 +862,12 @@ function carePlanView(model, state) {
   const reviewActive = model.analysis.readyForReview && state.reviewStarted && !caseReleased;
   const trace = recommendationTraceHTML(model, selected);
   const traceDisclosure = trace ? `<details class="care-trace-disclosure" data-care-plan-trace><summary>Reasoning traceback</summary>${trace}</details>` : '';
-  const selectedRail = selected ? `<section class="rail-card selected-item-rail"><span class="section-label">Selected item · ${esc(selected.planKind)}</span><h2>${esc(selected.title ?? selected.label ?? selected.id)}</h2><p>${esc(selected.reason ?? selected.why_it_matters ?? selected.why_now ?? 'Clinical rationale not emitted.')}</p><small>${esc(carePlanSource(selected))}</small>${reviewActive ? decisionForm(selected, taxonomy, false) : '<div class="truth-empty">Start review to expose structured decision controls.</div>'}</section>${traceDisclosure}` : traceDisclosure;
+  const selectedRail = selected ? `<section class="rail-card selected-item-rail"><span class="section-label">Selected item · ${esc(selected.planKind)}</span><h2>${esc(carePlanDisplayTitle(selected))}</h2><p>${esc(selected.reason ?? selected.why_it_matters ?? selected.why_now ?? 'Clinical rationale not emitted.')}</p><small title="${esc(carePlanSource(selected))}">${esc(carePlanSourceLabel(selected))}</small>${reviewActive ? decisionForm(selected, taxonomy, false) : '<div class="truth-empty">Start review to expose structured decision controls.</div>'}</section>${traceDisclosure}` : traceDisclosure;
   return `
-    <header class="screen-head"><div><h1>Care plan</h1><p>Library-derived obligations from the deterministic engine, not freeform generative clinical text.</p></div></header>
+    <header class="screen-head"><div><h1>Care plan</h1><p>Review obligations, actions, and release readiness.</p></div></header>
     ${analysisGate(model, state)}
     <div class="care-layout"><div>
-      <section class="plan-document"><div class="document-head"><div><span class="section-label">${esc(caseReleased ? 'released · read only' : stateText(model.carePlan.state))}</span><h2>${esc(model.carePlan.title)}</h2></div><span title="${esc(model.carePlan.id ?? 'Plan id not emitted')}">${esc(model.carePlan.id ?? 'Plan id not emitted')}</span></div><div class="document-inputs">${esc(model.carePlan.overview)}</div><div class="plan-body"><span class="plan-section-label">Assessment &amp; Plan</span>${noteHTML}<section class="plan-problem-group"><h3>Problems and obligations</h3>${required || '<div class="truth-empty">No problems or required obligations emitted.</div>'}</section><section class="plan-action-group"><h3>Recommended actions</h3>${actions || '<div class="truth-empty">No recommended actions emitted.</div>'}</section>${deferredHTML}${checksHTML}${actionSpaceBridge}</div><footer class="document-signature">${caseReleased ? 'Released to patient · patient visible · read only' : `${esc(model.carePlan.note?.signature_status ?? 'Unsigned')} · physician decisions remain staged until backend release.`}</footer></section>
+      <section class="plan-document"><div class="document-head"><div><span class="section-label">${esc(caseReleased ? 'released · read only' : stateText(model.carePlan.state))}</span><h2>${esc(model.carePlan.title)}</h2></div></div><div class="document-inputs">${esc(model.carePlan.overview)}</div><div class="plan-body"><span class="plan-section-label">Assessment &amp; Plan</span>${noteHTML}<section class="plan-problem-group"><h3>Problems and obligations</h3>${required || '<div class="truth-empty">No problems or required obligations emitted.</div>'}</section><section class="plan-action-group"><h3>Recommended actions</h3>${actions || '<div class="truth-empty">No recommended actions emitted.</div>'}</section>${deferredHTML}${checksHTML}${actionSpaceBridge}</div><footer class="document-signature">${caseReleased ? 'Released to patient · patient visible · read only' : `${esc(model.carePlan.note?.signature_status ?? 'Unsigned')} · physician decisions remain staged until backend release.`}</footer></section>
     </div><aside class="care-rail">${selectedRail}<section class="rail-card physician-add"><span class="section-label">Add physician problem or order</span><form data-add-action><label>Type<select name="action" data-decision-action ${reviewActive ? '' : 'disabled'}><option value="add_problem">Problem</option><option value="add_order">Order intent</option></select></label><label>Item<input name="value" placeholder="Physician-authored item" ${reviewActive ? '' : 'disabled'}></label><label>Reason<select name="reason_code" data-decision-reason ${reviewActive ? '' : 'disabled'}>${addReasons}</select></label><label>Rationale<input name="reason" placeholder="Required for audit" ${reviewActive ? '' : 'disabled'}></label><button type="submit" ${reviewActive ? '' : 'disabled'}>Add to review</button></form>${model.carePlan.additions.map((item) => `<small class="persisted-decision">Persisted ${esc(stateText(item.action))}: ${esc(item.patch?.title ?? item.patch?.label ?? item.patch?.what_to_do ?? item.target?.artifact_id ?? item.target?.id ?? item.override_id)}</small>`).join('')}</section>${releaseRail(model, state)}</aside></div>`;
 }
 
@@ -862,6 +887,15 @@ function journalRole(event) {
   return event?.actor_type ?? 'Role missing';
 }
 
+function journalTimestamp(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value ?? 'Timestamp missing');
+  return date.toLocaleString('en-US', {
+    month: 'short', day: 'numeric', year: 'numeric',
+    hour: 'numeric', minute: '2-digit', timeZone: 'UTC', timeZoneName: 'short',
+  });
+}
+
 function journalView(model) {
   const integrity = model.workflow.auditIntegrity;
   const integrityErrors = Array.isArray(integrity?.errors) ? integrity.errors : [];
@@ -872,7 +906,7 @@ function journalView(model) {
     const eventId = event.event_id ?? event.id;
     const valid = timestamp && before && after && eventId && before !== 'unknown' && after !== 'unknown';
     if (!valid) return `<article class="journal-entry journal-entry-error"><div class="timeline-node"></div><div><span class="journal-hazard-tile">Audit integrity error</span><h2>${esc(humanizeEventName(event.event_name ?? event.event_type ?? event.event))}</h2><p>Required chronology fields are missing.</p><small>${esc(eventId ?? 'Event ID missing')}</small></div></article>`;
-    return `<article class="journal-entry"><div class="timeline-node"></div><div><span>${esc(timestamp)}</span><h2>${esc(humanizeEventName(event.event_name ?? event.event_type ?? event.event))}</h2><p>${esc(stateText(before))} → ${esc(stateText(after))}</p><small>${esc(journalActor(event))} · ${esc(journalRole(event))} · ${esc(eventId)}</small></div></article>`;
+    return `<article class="journal-entry"><div class="timeline-node"></div><div><span>${esc(journalTimestamp(timestamp))}</span><h2>${esc(humanizeEventName(event.event_name ?? event.event_type ?? event.event))}</h2><p>${esc(stateText(before))} → ${esc(stateText(after))}</p><details class="journal-meta"><summary>Audit details</summary><small>${esc(journalActor(event))} · ${esc(journalRole(event))} · ${esc(eventId)}</small></details></div></article>`;
   });
   const recentLimit = 18;
   const recentRows = renderedRows.slice(-recentLimit).reverse().join('');
@@ -888,12 +922,12 @@ function journalView(model) {
     ? `<details><summary>Review validation details</summary><ul>${integrityErrors.map((error) => `<li>${esc(error)}</li>`).join('')}</ul></details>`
     : '';
   const banner = integrity?.status === 'pass' ? '' : `<section class="audit-integrity boundary-banner signal-hazard"><h2>Audit integrity error</h2><p>${esc(errorSummary)}</p>${errorDisclosure}</section>`;
-  return `<header class="screen-head"><div><h1>Journal</h1><p>Backend audit events and workflow transitions. Most recent first.</p></div></header>${banner}<section class="journal-list">${recentRows || empty('No journal events recorded.')}</section>${olderDisclosure}`;
+  return `<header class="screen-head"><div><h1>Journal</h1><p>Audit trail, most recent first.</p></div></header>${banner}<section class="journal-list">${recentRows || empty('No journal events recorded.')}</section>${olderDisclosure}`;
 }
 
 function aiView(model) {
   const candidates = model.ai.candidates.map((candidate) => `<article class="ai-evidence"><h2>${esc(candidate.title ?? candidate.id)}</h2><p>${esc(stateText(candidate.state ?? 'candidate state missing'))}</p><small>Mapped artifact: ${esc(candidate.mapped_scored_item ?? 'Not mapped')} · cited inputs ${candidate.cited_keys_valid === true ? 'validated' : 'not validated'}</small></article>`).join('');
-  return `<header class="screen-head"><div><h1>Aleron AI</h1><p>Case-grounded evidence only.</p></div></header><section class="ai-gate"><span class="section-label">Read-only gate</span><h2>${esc(model.ai.status)}</h2><p>Read-only evidence surface. No prompt composer.</p></section><section class="ai-list">${candidates || empty('No AI candidates for this release gate (read-only)')}</section>`;
+  return `<header class="screen-head"><div><h1>Aleron AI</h1><p>Case-grounded evidence.</p></div></header><section class="ai-gate"><h2>Read-only</h2><p>New AI actions are unavailable for this release.</p></section><section class="ai-list">${candidates || empty('No case-grounded AI evidence.')}</section>`;
 }
 
 function activeView(model, state) {

@@ -1,7 +1,7 @@
-import { buildWearableSummaryFromPacket, formatTrendLine } from './wearableSummary.js?v=physician-v1-no-vitality';
+import { buildWearableSummaryFromPacket, formatTrendLine } from './wearableSummary.js?v=physician-design-basics-v1';
 import { buildCurrencyOfTruth, resolveRiskSource, pagesUrl } from './canonicalSources.js';
-import { formatClinicalNumber } from './clinicalValueFormat.js?v=physician-v1-no-vitality';
-import { normalizeActionSpace } from './actionSpaceModel.js?v=physician-v1-no-vitality';
+import { formatClinicalNumber } from './clinicalValueFormat.js?v=physician-design-basics-v1';
+import { normalizeActionSpace } from './actionSpaceModel.js?v=physician-design-basics-v1';
 
 function array(value) {
   return Array.isArray(value) ? value : [];

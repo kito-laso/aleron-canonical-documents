@@ -6,7 +6,7 @@
  * No composite recovery score. Within-person only.
  */
 
-import { formatClinicalNumber } from './clinicalValueFormat.js?v=physician-v1-no-vitality';
+import { formatClinicalNumber } from './clinicalValueFormat.js?v=physician-design-basics-v1';
 
 const MS_DAY = 24 * 60 * 60 * 1000;
 

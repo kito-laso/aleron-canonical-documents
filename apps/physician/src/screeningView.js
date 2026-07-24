@@ -1,4 +1,5 @@
 const esc = (value) => String(value ?? '')
+  .replace(/[—–]/g, '-')
   .replace(/&/g, '&amp;')
   .replace(/</g, '&lt;')
   .replace(/>/g, '&gt;')
@@ -40,7 +41,7 @@ const STATUS_META = {
 const STATUS_ORDER = ['overdue', 'due', 'upcoming', 'completed'];
 
 function fmtDate(value) {
-  if (!value) return '—';
+  if (!value) return '-';
   const d = new Date(`${value}T00:00:00`);
   return d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
 }
@@ -130,6 +131,6 @@ export function screeningView(state) {
         <button type="button" data-sc-mode="timeline" class="${mode === 'timeline' ? 'on' : ''}" role="tab" aria-selected="${mode === 'timeline'}">Timeline</button>
       </div>
     </header>
-    <div class="sc-banner">Prototype — illustrative schedule. Cadence and dates are placeholders pending the governed screening source.</div>
+    <div class="sc-banner">Illustrative schedule. Dates and cadence await a governed source.</div>
     ${body}`;
 }

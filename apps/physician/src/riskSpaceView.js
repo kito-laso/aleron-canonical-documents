@@ -1,7 +1,8 @@
-import { RISK_DOMAINS } from './riskActionLibrary.js?v=risk-domain-action-space-v11';
-import { RISK_DOMAIN_TIERS } from './riskDomainTiers.js?v=risk-domain-action-space-v11';
+import { RISK_DOMAINS } from './riskActionLibrary.js?v=physician-design-basics-v1';
+import { RISK_DOMAIN_TIERS } from './riskDomainTiers.js?v=physician-design-basics-v1';
 
 const esc = (value) => String(value ?? '')
+  .replace(/[—–]/g, '-')
   .replace(/&/g, '&amp;')
   .replace(/</g, '&lt;')
   .replace(/>/g, '&gt;')
@@ -10,8 +11,8 @@ const esc = (value) => String(value ?? '')
 const X_L = 70;
 const X_R = 700;
 const Y_TOP = 20;
-const Y_BOT = 300;
-const SVG_H = 380;
+const Y_BOT = 250;
+const SVG_H = 320;
 const CONF_BANDS = ['VERY_LOW', 'LOW', 'MODERATE', 'HIGH'];
 const CONF_BAND_LABELS = { VERY_LOW: 'Very low', LOW: 'Low', MODERATE: 'Moderate', HIGH: 'High' };
 
@@ -446,7 +447,7 @@ export function riskSpaceView(model, state) {
       .join('');
     return `
     <div class="rs-lane">
-      <div class="rs-lane-label"><strong>${esc(laneDef.label)}</strong><span>${laneDef.actions.length} production ready</span></div>
+      <div class="rs-lane-label"><strong>${esc(laneDef.label)}</strong></div>
       <div class="rs-plot">${svg}${cards}</div>
       <div class="rs-key">${keys}</div>
     </div>`;
@@ -470,7 +471,7 @@ export function riskSpaceView(model, state) {
     <nav class="rs-tabs" role="tablist" aria-label="Risk domains">${tabs}</nav>
     <div class="rs-workspace" id="risk-domain-panel" role="tabpanel" aria-labelledby="risk-domain-tab-${esc(domain.id)}">
       <section class="rs-main">
-        <div class="rs-domain-intro"><h2>${esc(domain.title)}</h2><span>${domain.ready} production ready</span></div>
+        <div class="rs-domain-intro"><h2>${esc(domain.title)}</h2></div>
         <section class="panel rs-model"><div class="panel-head"><h3>Baseline risk</h3></div>
           <div class="rs-model-block">
             ${domainBaselineTable}
@@ -478,7 +479,7 @@ export function riskSpaceView(model, state) {
         </section>
         ${arrCard(selected, selectedCoordinate)}
         <section class="panel rs-space">
-          <div class="panel-head"><h3>Action Space</h3><span>Dot: source estimate · whisker: 95% interval · X band: ARR V1 matrix confidence · hover a dot for detail</span></div>
+          <div class="panel-head"><h3>Action Space</h3><span>Hover a point for effect, interval, and confidence.</span></div>
           ${lanes}
           <p class="rs-axis-note">Relative benefit = (1 minus HR or RR) x 100. Vertical position is comparable only within its endpoint lane. X bands are ARR V1 matrix confidence, grading translation confidence, not trial evidence quality.</p>
         </section>

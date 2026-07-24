@@ -6,26 +6,26 @@
     "apps/physician/assets/fonts/PolySans-Median.ttf": "c1a5e1dcf63963a4eeb688ff65e919aaac3ee9f9958b57fee6ca3224df35a74f",
     "apps/physician/assets/fonts/PolySans-Neutral.ttf": "52d272ffe1967e5bfab79353a314044319d5a86b16e90b44e457055a1f119c17",
     "apps/physician/fixtures/physician_synthetic_case.json": "cd8999ada536e6b5116db72fa6b7da1c39d260e55c87d2998760ad2653df3aa3",
-    "apps/physician/index.html": "181f1f667be4dcdddb89b4427c82925cd5e6654a1fa2156ee2bcf83cc6ba3fa2",
+    "apps/physician/index.html": "867599af5f0c5a92c254eb3e1ae8fe49b77995f666e52ae915af5ebac22a3e70",
     "apps/physician/src/actionSpaceModel.js": "210c7db90c474b7a1278e5895cb5255ae2d91a97659b6b77fa1a8c39a630c47d",
     "apps/physician/src/apiClient.js": "7c7abb9f27b71a0db8077501745a91944f2a6ba02a53e26b3c72a0787b923707",
     "apps/physician/src/canonicalSources.js": "a6db276ff2385687592683c7e8658f03d8b30ac025fc3471a0a9eb4f43473bb2",
-    "apps/physician/src/clinicalTrace.js": "69fda354f92062ea87cf532341571a5e4459b5551780ce522339a350d111bb2b",
+    "apps/physician/src/clinicalTrace.js": "43b651be5f21e127dc82e5aed3f339256c81af65255ab419057b806c2493e84b",
     "apps/physician/src/clinicalValueFormat.js": "ea48ae4de285b74f2f9f8c52c0e578a857f62d61d57e21d334b59151f75adadc",
-    "apps/physician/src/dashboardAdapter.js": "7543ee7910318249f80081ad56a04ce6c6ba47a89aeaf7d7cb0a4c5cc2eb55e4",
-    "apps/physician/src/dashboardApp.js": "2ffbe9486f3f4a94aebc89497afb569810bb4a8a723d37128552aaeaa5ebed9f",
+    "apps/physician/src/dashboardAdapter.js": "967cbfbe38524d397165501c833cc31a71d5752099c9222be7a13b1eb6dd2643",
+    "apps/physician/src/dashboardApp.js": "64faf443105b29b4c6fa9a772fe4c3ae1bc91e9085218b0de94acb41cd552444",
     "apps/physician/src/fixtureLoader.js": "c8936233143348043f94a6ed8f4dbffbc0da3b5fcd96a7af674713a21c2e5a67",
     "apps/physician/src/journey.css": "fff96372dd2f9d9f4c7547a8c2616f71c5b55b163d9e69b41e80caadbf306e17",
-    "apps/physician/src/main.js": "5259674c701b693b3beed58c922f6495e33155b918894918a8836a921b0fc5a0",
+    "apps/physician/src/main.js": "659e40cd432c061bc3a72739c11c54f578f1c9886537c9f433965c3cf78a97db",
     "apps/physician/src/riskActionLibrary.js": "3d1c21a3252ce735916291006970dacd436daf0ba8e45bfc46884445173d2416",
     "apps/physician/src/riskDomainTiers.js": "7b852deaea766611a46bc9547a6eefd25b4bdf7bfce2707830df8d2ef26c2287",
-    "apps/physician/src/riskSpaceView.js": "31aeb400df44e502113a948903196a5e5ff91c9483a5c82e4ef540b4be8a2d0e",
+    "apps/physician/src/riskSpaceView.js": "6abf83cfa9b4a8b90475caf342b2a2f2dadd41fb1cb3a70f06fc0ed88d02cbf4",
     "apps/physician/src/runtimeConfig.js": "b81e387a01c7b00a2380e2d61baaf136b377dd441e6011aaf58bc2897455ad82",
-    "apps/physician/src/screeningView.js": "2ec45ea3ddc7da41849182930d7794ab098a65bdf2b79acc57333507a9167608",
-    "apps/physician/src/styles.css": "e2e4bad7c6932b1292cf29a74a4fbf4a6fbba76be034b871a508bd70ead373e2",
-    "apps/physician/src/wearableSummary.js": "7a662e5333d7d82e9cfd02320751a57887cb9c608f6d5536b23a862fbc45c8bf"
+    "apps/physician/src/screeningView.js": "4c4a4b2b18486a17afe81a59be2c9a9fd4f039a8ea75ffb0bf52317ea5960891",
+    "apps/physician/src/styles.css": "f3960d519bd5498afde696d7b3cb29a506b8cf7690eb7900361df0c18f50cde4",
+    "apps/physician/src/wearableSummary.js": "3fd40f46fdac1b5ddfcfb63daffba03544ba11835fd57be58c53a6e73311e1ff"
   },
-  "physician_tree_sha256": "da08ea1e2219dcfd9ba43abed161e2804b4d6e8ac8037587507ca789838be8f0",
+  "physician_tree_sha256": "a57e019abdc3c8577c71907e35257db3395d6bb527f576d70fdf38cb869282ff",
   "preserve_top_level": [
     "apps",
     "archive",
@@ -38,11 +38,11 @@
     "workspaces"
   ],
   "schema_version": "aleron.canonical-deployment.v1",
-  "source_branch": "agent/staging-baseline-arr",
+  "source_branch": "agent/physician-design-basics",
   "source_dirty": false,
   "source_documents": {
     "engine/system-design/diagrams/aleron-repo-architecture.html": "ecaad647243e89bb942e2c86062804bff25fe9b99ad74af9c44c0f75e4982b86"
   },
-  "source_git_tree": "650e26632b034f03a50086685910b9042e149b14",
-  "source_sha": "414c063902334d3aa8495c538e809266b24ce7a1"
+  "source_git_tree": "93c0717c92e505937e8b9e4405c204aaa1bbc5ad",
+  "source_sha": "ac4a372840886b49a350f523a88cb0e35c69ae0f"
 }
