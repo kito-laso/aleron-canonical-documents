@@ -1,5 +1,5 @@
-import { RISK_DOMAINS } from './riskActionLibrary.js?v=physician-design-basics-v1';
-import { RISK_DOMAIN_TIERS } from './riskDomainTiers.js?v=physician-design-basics-v1';
+import { RISK_DOMAINS } from './riskActionLibrary.js?v=physician-design-basics-v2';
+import { RISK_DOMAIN_TIERS } from './riskDomainTiers.js?v=physician-design-basics-v2';
 
 const esc = (value) => String(value ?? '')
   .replace(/[—–]/g, '-')
@@ -236,7 +236,7 @@ function modelIdentity(label, placeholder = false) {
 function baselineTable(model, domain) {
   const rows = domainRiskRows(model, domain.id);
   const table = (headers, body) => `<div class="rs-baselines-scroll"><table class="rs-baselines">
-      <thead><tr>${headers.map((header) => `<th scope="col">${esc(header)}</th>`).join('')}</tr></thead>
+      <thead><tr>${headers.map((header) => `<th scope="col"${/^(?:2|5|10|30)-year$/.test(header) ? ' class="rs-baseline-number-head"' : ''}>${esc(header)}</th>`).join('')}</tr></thead>
       <tbody>${body}</tbody></table></div>`;
 
   if (domain.id === 'cardiovascular') {

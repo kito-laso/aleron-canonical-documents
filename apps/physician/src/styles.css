@@ -211,7 +211,7 @@ html,body{font-size:14px}
 .rs-baselines{width:100%;min-width:560px;border-collapse:collapse;margin:0;font-family:var(--voice)}
 .rs-baselines th{text-align:left;font-size:12px;font-weight:400;color:var(--text-tertiary);padding:0 12px 6px 0;border-bottom:1px solid var(--border-subtle)}
 .rs-baselines td{font-size:13px;font-weight:400;color:var(--text-primary);padding:7px 12px 7px 0;border-bottom:1px solid var(--border-subtle);vertical-align:baseline}
-.rs-baselines th:last-child,.rs-baselines td:last-child{text-align:right;padding-right:0}
+.rs-baselines th:last-child,.rs-baselines td:last-child,.rs-baselines th.rs-baseline-number-head{text-align:right}.rs-baselines th:last-child,.rs-baselines td:last-child{padding-right:0}
 .rs-baselines tbody tr:last-child td{border-bottom:0}
 .rs-baseline-horizon,.rs-baseline-value{font-variant-numeric:tabular-nums}
 .rs-baseline-horizon{white-space:nowrap}

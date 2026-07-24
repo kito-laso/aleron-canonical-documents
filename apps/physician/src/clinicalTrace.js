@@ -1,4 +1,4 @@
-import { displayValue } from './dashboardAdapter.js?v=physician-design-basics-v1';
+import { displayValue } from './dashboardAdapter.js?v=physician-design-basics-v2';
 
 const esc = (value) => String(value ?? '').replace(/[&<>'"]/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;' })[c]);
 const array = (value) => Array.isArray(value) ? value : [];
