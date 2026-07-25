@@ -1,8 +1,10 @@
 import { assertFixtureBundle, loadFixtureBundle } from './fixtureLoader.js';
 import { PHYSICIAN_RUNTIME_CONFIG } from './runtimeConfig.js';
+import { createPhysicianAIBackendClient } from './aiColleagueBackend.js';
 
 let fixtureCache;
 let backendCache;
+let physicianAIClientCache;
 
 function isLoopbackHostname(hostname) {
   const normalized = String(hostname ?? '').toLowerCase().replace(/^\[|\]$/g, '');
@@ -73,6 +75,15 @@ async function postJSON(baseURL, path, payload = {}) {
 
 function invalidateBackendCache() {
   backendCache = undefined;
+}
+
+export function getPhysicianAIBackendClient() {
+  const baseURL = backendBaseURL();
+  if (!baseURL) throw new Error('Physician AI backend client is unavailable in explicit fixture mode.');
+  if (!physicianAIClientCache || physicianAIClientCache.baseURL !== baseURL) {
+    physicianAIClientCache = { baseURL, client: createPhysicianAIBackendClient({ baseURL }) };
+  }
+  return physicianAIClientCache.client;
 }
 
 async function loadBackendBundle(baseURL, patientId = null) {

@@ -55,6 +55,9 @@
     },
     "patient_packet": {
       "schema_version": "patient_packet.v1",
+      "packet_id": "packet-synth-al47m-20260710",
+      "packet_hash": "bfd7f9e207f50f3a154cbf750a1cec8b532ec517e1afc251028ff45b9763ee65",
+      "snapshot_date": "2026-07-10",
       "patient_id": "ethan-park",
       "display_name": "Ethan Park",
       "code": "AL-47M",

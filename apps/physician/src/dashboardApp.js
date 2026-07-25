@@ -1,9 +1,10 @@
-import { displayValue } from './dashboardAdapter.js?v=physician-design-basics-v2';
-import { formatTrendLine } from './wearableSummary.js?v=physician-design-basics-v2';
+import { displayValue } from './dashboardAdapter.js?v=physician-ai-colleague-v1';
+import { formatTrendLine } from './wearableSummary.js?v=physician-ai-colleague-v1';
 import { getOverrideTaxonomy } from './apiClient.js';
-import { recommendationTraceHTML, releasePreviewHTML } from './clinicalTrace.js?v=physician-design-basics-v2';
-import { riskSpaceView } from './riskSpaceView.js?v=physician-design-basics-v2';
-import { screeningView } from './screeningView.js?v=physician-design-basics-v2';
+import { recommendationTraceHTML, releasePreviewHTML } from './clinicalTrace.js?v=physician-ai-colleague-v1';
+import { riskSpaceView } from './riskSpaceView.js?v=physician-ai-colleague-v1';
+import { screeningView } from './screeningView.js?v=physician-ai-colleague-v1';
+import { aiColleagueView } from './aiColleagueView.js?v=physician-ai-colleague-v1';
 
 // Vitality is out of scope for V1 (Jason, 2026-07-24). The tab is removed from
 // navigation so the surface is unreachable; vitalityView() and its adapter path
@@ -925,9 +926,8 @@ function journalView(model) {
   return `<header class="screen-head"><div><h1>Journal</h1><p>Audit trail, most recent first.</p></div></header>${banner}<section class="journal-list">${recentRows || empty('No journal events recorded.')}</section>${olderDisclosure}`;
 }
 
-function aiView(model) {
-  const candidates = model.ai.candidates.map((candidate) => `<article class="ai-evidence"><h2>${esc(candidate.title ?? candidate.id)}</h2><p>${esc(stateText(candidate.state ?? 'candidate state missing'))}</p><small>Mapped artifact: ${esc(candidate.mapped_scored_item ?? 'Not mapped')} · cited inputs ${candidate.cited_keys_valid === true ? 'validated' : 'not validated'}</small></article>`).join('');
-  return `<header class="screen-head"><div><h1>Aleron AI</h1><p>Case-grounded evidence.</p></div></header><section class="ai-gate"><h2>Read-only</h2><p>New AI actions are unavailable for this release.</p></section><section class="ai-list">${candidates || empty('No case-grounded AI evidence.')}</section>`;
+function aiView(state) {
+  return aiColleagueView(state.aiWorkspace);
 }
 
 function activeView(model, state) {
@@ -937,7 +937,7 @@ function activeView(model, state) {
   // through to patient data rather than rendering an unreachable surface.
   if (state.activeTab === 'care-plan') return carePlanView(model, state);
   if (state.activeTab === 'journal') return journalView(model);
-  if (state.activeTab === 'aleron-ai') return aiView(model);
+  if (state.activeTab === 'aleron-ai') return aiView(state);
   return patientDataView(model);
 }
 

@@ -5,14 +5,41 @@ import {
   createStructuredEdit,
   getActiveCase,
   getPhysicianBundle,
+  getPhysicianAIBackendClient,
   persistStructuredEdit,
   requestFinalRelease,
   requestPhysicianAuthorization,
   requestReleasePreview,
   startPhysicianReview
 } from './apiClient.js';
-import { adaptPhysicianCase, artifactBindsCurrentLineage, buildReleasePreviewRequest, releaseIdentifier } from './dashboardAdapter.js?v=physician-design-basics-v2';
-import { decisionReasonOptionsHTML, renderDashboard, renderEmptyStaging, renderFatalError } from './dashboardApp.js?v=physician-design-basics-v2';
+import { adaptBackendThreadWorkspace, applyLocalDraftEdit } from './aiColleagueBackend.js?v=physician-ai-backend-v1';
+import { adaptPhysicianCase, artifactBindsCurrentLineage, buildReleasePreviewRequest, releaseIdentifier } from './dashboardAdapter.js?v=physician-ai-colleague-v1';
+import { decisionReasonOptionsHTML, renderDashboard, renderEmptyStaging, renderFatalError } from './dashboardApp.js?v=physician-ai-colleague-v1';
+import {
+  adoptClaim,
+  applyProviderConsultation,
+  applyProviderDraft,
+  applyProviderMessage,
+  beginClaimAdoption,
+  cancelClaimAdoption,
+  createDraft,
+  createWorkspaceRepository,
+  dismissClaim,
+  resumeAIWorkspace,
+  runFixtureConsultationFollowUp,
+  runFixtureConsultation,
+  selectClaimForReview,
+  selectThread,
+  sendFixtureMessage,
+  startNewThread,
+  updateDraftContent
+} from './aiColleague.js?v=physician-ai-colleague-v1';
+import {
+  buildConsultationFollowUpQuestion,
+  buildCodexProviderRequest,
+  codexModeFromLocation,
+  createCodexSubscriptionProvider
+} from './aiColleagueProvider.js?v=physician-ai-codex-provider-v1';
 
 const app = document.querySelector('#app');
 const state = {
@@ -34,7 +61,9 @@ const state = {
   reviewStarted: false,
   releasePackage: null,
   workflowStatus: null,
-  workflowError: null
+  workflowError: null,
+  aiWorkspace: null,
+  aiError: null
 };
 
 function selectedTask() {
@@ -83,26 +112,287 @@ function inferReviewStarted() {
   state.reviewStarted = Boolean(analysisReady() && (persistedReview || (currentTask && lifecycleActive)));
 }
 
-function adoptCase(caseBundle) {
-  state.activeCase = caseBundle;
+function aiCodexMode() {
+  if (typeof window === 'undefined') return false;
+  return codexModeFromLocation(window.location);
+}
+
+function aiFixtureMode() {
+  if (typeof window === 'undefined') return false;
+  const params = new URL(window.location.href).searchParams;
+  return params.get('fixture') === '1' && !aiCodexMode();
+}
+
+function aiBackendMode() {
+  return !aiFixtureMode() && !aiCodexMode();
+}
+
+const aiSessionRecords = new Map();
+const aiSessionStorage = {
+  getItem: (key) => aiSessionRecords.get(key) ?? null,
+  setItem: (key, value) => aiSessionRecords.set(key, value),
+  removeItem: (key) => aiSessionRecords.delete(key)
+};
+
+function aiRepository() {
+  return createWorkspaceRepository(aiSessionStorage);
+}
+
+function createAIProviderSessionId() {
+  const value = globalThis.crypto?.randomUUID?.()
+    ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return `session-${value.replace(/[^A-Za-z0-9_-]/g, '')}`;
+}
+
+const aiProviderSessionId = createAIProviderSessionId();
+let aiCodexProvider = null;
+const aiLocalDraftEdits = new Map();
+
+function codexProvider() {
+  aiCodexProvider ??= createCodexSubscriptionProvider({ sessionId: aiProviderSessionId });
+  return aiCodexProvider;
+}
+
+async function initializeAIWorkspace(caseBundle) {
+  if (aiBackendMode()) {
+    const patientId = caseBundle?.patient_packet?.patient_id ?? caseBundle?.patient_id;
+    if (!patientId) throw new Error('Backend physician AI workspace requires the selected patient ID.');
+    const client = getPhysicianAIBackendClient();
+    const listed = await client.listThreads(patientId);
+    if (listed.patient_id !== patientId || !Array.isArray(listed.threads)) throw new Error('Backend physician AI thread list does not match the selected patient.');
+    let threads = listed.threads;
+    let selectedId = threads[0]?.thread_id ?? null;
+    if (!selectedId) {
+      const created = await client.createThread(patientId, 'New conversation');
+      if (!created.thread) throw new Error('Backend physician AI thread creation returned no aggregate.');
+      selectedId = created.thread.thread_id;
+      threads = [created.thread];
+    }
+    const loaded = await client.getThread(patientId, selectedId);
+    if (!loaded.thread) throw new Error('Backend physician AI thread load returned no aggregate.');
+    threads = [loaded.thread, ...threads.filter((thread) => thread.thread_id !== selectedId)];
+    return adaptBackendThreadWorkspace(caseBundle, threads, selectedId, { localDraftEdits: aiLocalDraftEdits });
+  }
+  const codexMode = aiCodexMode();
+  const workspace = resumeAIWorkspace(caseBundle, aiRepository(), {
+    fixtureMode: aiFixtureMode(),
+    providerAvailable: codexMode,
+    providerMode: codexMode ? 'codex_subscription' : null
+  });
+  aiRepository().save(workspace);
+  return workspace;
+}
+
+function persistAIWorkspace(workspace) {
+  state.aiWorkspace = {
+    ...workspace,
+    providerPending: false,
+    providerError: null
+  };
+  state.aiError = null;
+  if (!aiBackendMode()) aiRepository().save(state.aiWorkspace);
+  render();
+}
+
+function adoptBackendAIThread(thread) {
+  const prior = state.aiWorkspace;
+  const threads = [thread, ...(prior?.threads ?? [])
+    .filter((candidate) => candidate.threadId !== thread.thread_id)
+    .map((candidate) => candidate.backendAggregate)
+    .filter(Boolean)];
+  state.aiWorkspace = adaptBackendThreadWorkspace(state.activeCase, threads, thread.thread_id, {
+    localDraftEdits: aiLocalDraftEdits,
+    selectedClaimId: prior?.selectedClaimId,
+    adoptionPendingClaimId: prior?.adoptionPendingClaimId
+  });
+  state.aiError = null;
+  render();
+}
+
+function setAIProviderPending() {
+  if (state.aiWorkspace?.providerPending) throw new Error('One Codex request is already in flight for this local session.');
+  state.aiWorkspace = {
+    ...state.aiWorkspace,
+    providerPending: true,
+    providerError: null
+  };
+  render();
+}
+
+function failAI(error) {
+  const message = error?.message ?? 'AI operation failed. No fallback answer was generated.';
+  state.aiError = message;
+  state.aiWorkspace = {
+    ...state.aiWorkspace,
+    providerPending: false,
+    providerError: message
+  };
+  render();
+}
+
+function activeAIThread() {
+  return state.aiWorkspace?.threads?.find((thread) => thread.threadId === state.aiWorkspace.activeThreadId) ?? null;
+}
+
+function activeAIClaim(claimId) {
+  return activeAIThread()?.claims?.find((claim) => claim.claim_id === claimId) ?? null;
+}
+
+function activeAIConsultation(consultationId) {
+  return activeAIThread()?.consultations?.find((consultation) => consultation.consultation_id === consultationId) ?? null;
+}
+
+function neutralConsultationQuestion() {
+  const messages = activeAIThread()?.messages ?? [];
+  return [...messages].reverse().find((message) => message.role === 'physician')?.content
+    ?? 'What clinically material explanations should be considered from the emitted patient context?';
+}
+
+async function sendAIMessage(message) {
+  if (aiFixtureMode()) {
+    persistAIWorkspace(sendFixtureMessage(state.aiWorkspace, state.activeCase, message));
+    return;
+  }
+  if (aiBackendMode()) {
+    const thread = activeAIThread();
+    if (!thread) throw new Error('Backend physician AI message requires an active patient thread.');
+    setAIProviderPending();
+    const result = await getPhysicianAIBackendClient().sendMessage(state.activePatientId, thread.threadId, message, state.aiWorkspace.packetHash);
+    if (!result.thread) throw new Error('Backend physician AI message returned no aggregate.');
+    adoptBackendAIThread(result.thread);
+    return;
+  }
+  setAIProviderPending();
+  const response = await codexProvider().send(buildCodexProviderRequest({
+    workspace: state.aiWorkspace,
+    operation: 'message',
+    question: message,
+    sessionId: aiProviderSessionId
+  }));
+  persistAIWorkspace(applyProviderMessage(state.aiWorkspace, message, response));
+}
+
+async function runAIConsultation(claimId, consultationType, specialty) {
+  if (aiFixtureMode()) {
+    const result = runFixtureConsultation(state.aiWorkspace, claimId, consultationType, { specialty });
+    persistAIWorkspace(result.workspace);
+    return;
+  }
+  const targetClaim = activeAIClaim(claimId);
+  if (!targetClaim) throw new Error('Consultation requires a current material claim.');
+  if (aiBackendMode()) {
+    setAIProviderPending();
+    const result = await getPhysicianAIBackendClient().createConsultation(
+      state.activePatientId,
+      activeAIThread().threadId,
+      claimId,
+      consultationType,
+      { specialty, neutralQuestion: neutralConsultationQuestion() }
+    );
+    if (!result.thread) throw new Error('Backend physician AI consultation returned no aggregate.');
+    adoptBackendAIThread(result.thread);
+    return;
+  }
+  setAIProviderPending();
+  const response = await codexProvider().send(buildCodexProviderRequest({
+    workspace: state.aiWorkspace,
+    operation: 'consultation',
+    consultationType,
+    specialty,
+    targetClaim,
+    question: neutralConsultationQuestion(),
+    sessionId: aiProviderSessionId
+  }));
+  persistAIWorkspace(applyProviderConsultation(state.aiWorkspace, claimId, response));
+}
+
+async function runAIConsultationFollowUp(consultationId, question) {
+  const parent = activeAIConsultation(consultationId);
+  if (!parent) throw new Error('Consultation follow-up requires its original consultation context.');
+  if (aiFixtureMode()) {
+    persistAIWorkspace(runFixtureConsultationFollowUp(state.aiWorkspace, consultationId, question).workspace);
+    return;
+  }
+  const targetClaim = activeAIClaim(parent.target_claim_id);
+  if (!targetClaim) throw new Error('Consultation follow-up requires the original material claim.');
+  if (aiBackendMode()) {
+    setAIProviderPending();
+    const result = await getPhysicianAIBackendClient().createConsultation(
+      state.activePatientId,
+      activeAIThread().threadId,
+      parent.target_claim_id,
+      parent.consultation_type,
+      {
+        specialty: parent.specialty,
+        neutralQuestion: question,
+        parentConsultationId: consultationId
+      }
+    );
+    if (!result.thread) throw new Error('Backend physician AI consultation follow-up returned no aggregate.');
+    adoptBackendAIThread(result.thread);
+    return;
+  }
+  setAIProviderPending();
+  const response = await codexProvider().send(buildCodexProviderRequest({
+    workspace: state.aiWorkspace,
+    operation: 'consultation',
+    consultationType: parent.consultation_type,
+    specialty: parent.specialty,
+    targetClaim,
+    question: buildConsultationFollowUpQuestion(parent, question),
+    sessionId: aiProviderSessionId
+  }));
+  persistAIWorkspace(applyProviderConsultation(state.aiWorkspace, parent.target_claim_id, response, { parentConsultationId: consultationId }));
+}
+
+async function createAIDraft(claimId, draftType) {
+  if (aiFixtureMode()) {
+    persistAIWorkspace(createDraft(state.aiWorkspace, claimId, draftType).workspace);
+    return;
+  }
+  const targetClaim = activeAIClaim(claimId);
+  if (!targetClaim || targetClaim.state !== 'adopted') throw new Error('Drafting requires an explicitly adopted conclusion.');
+  if (aiBackendMode()) {
+    setAIProviderPending();
+    const result = await getPhysicianAIBackendClient().createDraft(state.activePatientId, activeAIThread().threadId, claimId, draftType);
+    if (!result.thread) throw new Error('Backend physician AI draft returned no aggregate.');
+    adoptBackendAIThread(result.thread);
+    return;
+  }
+  setAIProviderPending();
+  const response = await codexProvider().send(buildCodexProviderRequest({
+    workspace: state.aiWorkspace,
+    operation: 'draft',
+    draftType,
+    adoptedClaims: [targetClaim],
+    sessionId: aiProviderSessionId
+  }));
+  persistAIWorkspace(applyProviderDraft(state.aiWorkspace, response));
+}
+
+async function adoptCase(caseBundle) {
+  const aiWorkspace = await initializeAIWorkspace(caseBundle);
   const releasePackage = caseBundle?.release_preview ?? caseBundle?.release_package ?? null;
+  state.activeCase = caseBundle;
   state.releasePackage = releasePackageIsCurrent(caseBundle, releasePackage) ? releasePackage : null;
   const patientId = caseBundle?.patient_packet?.patient_id ?? caseBundle?.patient_id;
   if (patientId) state.activePatientId = patientId;
+  state.aiWorkspace = aiWorkspace;
+  state.aiError = null;
   inferReviewStarted();
 }
 
 async function loadCase(patientId) {
   state.workflowError = null;
   const caseBundle = await getActiveCase(patientId);
-  adoptCase(caseBundle);
+  await adoptCase(caseBundle);
 }
 
 async function refreshFromBackend() {
   const bundle = await getPhysicianBundle(state.activePatientId);
   state.queue = bundle.queue ?? state.queue;
   state.source = bundle.source ?? state.source;
-  if (bundle.case) adoptCase(bundle.case);
+  if (bundle.case) await adoptCase(bundle.case);
 }
 
 function setBusyStatus(message) {
@@ -166,6 +456,147 @@ function attachListeners() {
   document.querySelectorAll('[data-tab]').forEach((button) => button.addEventListener('click', () => {
     state.activeTab = button.dataset.tab;
     render();
+  }));
+
+  document.querySelector('[data-ai-new-thread]')?.addEventListener('click', async () => {
+    try {
+      if (!aiBackendMode()) {
+        persistAIWorkspace(startNewThread(state.aiWorkspace));
+        return;
+      }
+      setAIProviderPending();
+      const result = await getPhysicianAIBackendClient().createThread(state.activePatientId, 'New conversation');
+      if (!result.thread) throw new Error('Backend physician AI thread creation returned no aggregate.');
+      adoptBackendAIThread(result.thread);
+    } catch (error) {
+      failAI(error);
+    }
+  });
+
+  document.querySelectorAll('[data-ai-thread]').forEach((button) => button.addEventListener('click', async () => {
+    try {
+      if (!aiBackendMode()) {
+        persistAIWorkspace(selectThread(state.aiWorkspace, button.dataset.aiThread));
+        return;
+      }
+      setAIProviderPending();
+      const result = await getPhysicianAIBackendClient().getThread(state.activePatientId, button.dataset.aiThread);
+      if (!result.thread) throw new Error('Backend physician AI thread load returned no aggregate.');
+      adoptBackendAIThread(result.thread);
+    } catch (error) {
+      failAI(error);
+    }
+  }));
+
+  [...document.querySelectorAll('[data-ai-review-claim]'), ...document.querySelectorAll('[data-ai-ledger-claim]')].forEach((button) => button.addEventListener('click', () => {
+    persistAIWorkspace(selectClaimForReview(state.aiWorkspace, button.dataset.aiReviewClaim ?? button.dataset.aiLedgerClaim));
+  }));
+
+  document.querySelectorAll('[data-ai-starter]').forEach((button) => button.addEventListener('click', async () => {
+    try {
+      await sendAIMessage(button.dataset.aiQuestion);
+    } catch (error) {
+      failAI(error);
+    }
+  }));
+
+  document.querySelector('form[data-ai-composer]')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    try {
+      const message = new FormData(event.target).get('message');
+      await sendAIMessage(message);
+    } catch (error) {
+      failAI(error);
+    }
+  });
+
+  document.querySelectorAll('[data-ai-consultation]').forEach((button) => button.addEventListener('click', async () => {
+    try {
+      const specialty = document.querySelector('[data-ai-specialty]')?.value ?? 'Sleep Medicine';
+      await runAIConsultation(button.dataset.aiClaim, button.dataset.aiConsultation, specialty);
+    } catch (error) {
+      failAI(error);
+    }
+  }));
+
+  document.querySelectorAll('form[data-ai-consultation-follow-up]').forEach((form) => form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    try {
+      await runAIConsultationFollowUp(form.dataset.aiConsultationFollowUp, new FormData(form).get('question'));
+    } catch (error) {
+      failAI(error);
+    }
+  }));
+
+  document.querySelectorAll('[data-ai-begin-adoption]').forEach((button) => button.addEventListener('click', () => {
+    persistAIWorkspace(beginClaimAdoption(state.aiWorkspace, button.dataset.aiBeginAdoption));
+  }));
+
+  document.querySelector('[data-ai-cancel-adoption]')?.addEventListener('click', () => {
+    persistAIWorkspace(cancelClaimAdoption(state.aiWorkspace));
+  });
+
+  document.querySelectorAll('[data-ai-adopt]').forEach((button) => button.addEventListener('click', async () => {
+    try {
+      if (!aiBackendMode()) {
+        persistAIWorkspace(adoptClaim(state.aiWorkspace, button.dataset.aiAdopt, { confirmedStatement: button.dataset.aiConfirmedStatement }));
+        return;
+      }
+      setAIProviderPending();
+      const result = await getPhysicianAIBackendClient().adoptClaim(
+        state.activePatientId,
+        activeAIThread().threadId,
+        button.dataset.aiAdopt,
+        button.dataset.aiConfirmedStatement
+      );
+      if (!result.thread) throw new Error('Backend physician AI adoption returned no aggregate.');
+      adoptBackendAIThread(result.thread);
+    } catch (error) {
+      failAI(error);
+    }
+  }));
+
+  document.querySelectorAll('[data-ai-dismiss]').forEach((button) => button.addEventListener('click', async () => {
+    try {
+      if (!aiBackendMode()) {
+        persistAIWorkspace(dismissClaim(state.aiWorkspace, button.dataset.aiDismiss));
+        return;
+      }
+      setAIProviderPending();
+      const result = await getPhysicianAIBackendClient().dismissClaim(
+        state.activePatientId,
+        activeAIThread().threadId,
+        button.dataset.aiDismiss,
+        'Physician dismissed this hypothesis from the Aleron AI workspace.'
+      );
+      if (!result.thread) throw new Error('Backend physician AI dismissal returned no aggregate.');
+      adoptBackendAIThread(result.thread);
+    } catch (error) {
+      failAI(error);
+    }
+  }));
+
+  document.querySelectorAll('[data-ai-draft]').forEach((button) => button.addEventListener('click', async () => {
+    try {
+      await createAIDraft(button.dataset.aiClaim, button.dataset.aiDraft);
+    } catch (error) {
+      failAI(error);
+    }
+  }));
+
+  document.querySelectorAll('[data-ai-draft-editor]').forEach((editor) => editor.addEventListener('input', () => {
+    try {
+      if (aiBackendMode()) {
+        state.aiWorkspace = applyLocalDraftEdit(state.aiWorkspace, editor.dataset.aiDraftEditor, editor.value, aiLocalDraftEdits);
+      } else {
+        state.aiWorkspace = updateDraftContent(state.aiWorkspace, editor.dataset.aiDraftEditor, editor.value);
+        aiRepository().save(state.aiWorkspace);
+      }
+      const editState = editor.closest('.ai-draft')?.querySelector('[data-ai-draft-edit-state]');
+      if (editState) editState.textContent = aiBackendMode() ? 'Local uncommitted edit' : 'Edited';
+    } catch (error) {
+      failAI(error);
+    }
   }));
 
   document.querySelectorAll('[data-model-pane]').forEach((button) => button.addEventListener('click', () => {
@@ -285,7 +716,6 @@ function attachListeners() {
 
   document.querySelector('[data-case-selector]')?.addEventListener('change', async (event) => {
     const patientId = event.target.value;
-    state.activePatientId = patientId;
     state.workflowStatus = 'Loading case artifacts…';
     render();
     try {
@@ -466,7 +896,7 @@ async function boot() {
     state.queue = bundle.queue ?? [];
     state.source = bundle.source ?? 'backend';
     state.apiBaseUrl = (await import('./runtimeConfig.js')).PHYSICIAN_RUNTIME_CONFIG.apiBaseUrl;
-    adoptCase(bundle.case);
+    await adoptCase(bundle.case);
     state.activePatientId = deepLinkPatientId
       ?? bundle.case?.patient_packet?.patient_id
       ?? bundle.case?.patient_id

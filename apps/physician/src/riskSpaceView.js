@@ -1,5 +1,5 @@
-import { RISK_DOMAINS } from './riskActionLibrary.js?v=physician-design-basics-v2';
-import { RISK_DOMAIN_TIERS } from './riskDomainTiers.js?v=physician-design-basics-v2';
+import { RISK_DOMAINS } from './riskActionLibrary.js?v=physician-ai-colleague-v1';
+import { RISK_DOMAIN_TIERS } from './riskDomainTiers.js?v=physician-ai-colleague-v1';
 
 const esc = (value) => String(value ?? '')
   .replace(/[—–]/g, '-')
