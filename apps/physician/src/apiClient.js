@@ -1,6 +1,6 @@
-import { assertFixtureBundle, loadFixtureBundle } from './fixtureLoader.js';
-import { PHYSICIAN_RUNTIME_CONFIG } from './runtimeConfig.js';
-import { createPhysicianAIBackendClient } from './aiColleagueBackend.js';
+import { assertFixtureBundle, loadFixtureBundle } from './fixtureLoader.js?v=physician-ai-runtime-v1';
+import { PHYSICIAN_RUNTIME_CONFIG } from './runtimeConfig.js?v=physician-ai-runtime-v1';
+import { createPhysicianAIBackendClient } from './aiColleagueBackend.js?v=physician-ai-runtime-v1';
 
 let fixtureCache;
 let backendCache;

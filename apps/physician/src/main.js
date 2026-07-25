@@ -11,10 +11,10 @@ import {
   requestPhysicianAuthorization,
   requestReleasePreview,
   startPhysicianReview
-} from './apiClient.js';
-import { adaptBackendThreadWorkspace, applyLocalDraftEdit } from './aiColleagueBackend.js?v=physician-ai-backend-v1';
-import { adaptPhysicianCase, artifactBindsCurrentLineage, buildReleasePreviewRequest, releaseIdentifier } from './dashboardAdapter.js?v=physician-ai-colleague-v1';
-import { decisionReasonOptionsHTML, renderDashboard, renderEmptyStaging, renderFatalError } from './dashboardApp.js?v=physician-ai-colleague-v1';
+} from './apiClient.js?v=physician-ai-runtime-v1';
+import { adaptBackendThreadWorkspace, applyLocalDraftEdit } from './aiColleagueBackend.js?v=physician-ai-runtime-v1';
+import { adaptPhysicianCase, artifactBindsCurrentLineage, buildReleasePreviewRequest, releaseIdentifier } from './dashboardAdapter.js?v=physician-ai-runtime-v1';
+import { decisionReasonOptionsHTML, renderDashboard, renderEmptyStaging, renderFatalError } from './dashboardApp.js?v=physician-ai-runtime-v1';
 import {
   adoptClaim,
   applyProviderConsultation,
@@ -33,13 +33,13 @@ import {
   sendFixtureMessage,
   startNewThread,
   updateDraftContent
-} from './aiColleague.js?v=physician-ai-colleague-v1';
+} from './aiColleague.js?v=physician-ai-runtime-v1';
 import {
   buildConsultationFollowUpQuestion,
   buildCodexProviderRequest,
   codexModeFromLocation,
   createCodexSubscriptionProvider
-} from './aiColleagueProvider.js?v=physician-ai-codex-provider-v1';
+} from './aiColleagueProvider.js?v=physician-ai-runtime-v1';
 
 const app = document.querySelector('#app');
 const state = {

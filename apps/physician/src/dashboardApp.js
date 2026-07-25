@@ -1,10 +1,10 @@
-import { displayValue } from './dashboardAdapter.js?v=physician-ai-colleague-v1';
-import { formatTrendLine } from './wearableSummary.js?v=physician-ai-colleague-v1';
-import { getOverrideTaxonomy } from './apiClient.js';
-import { recommendationTraceHTML, releasePreviewHTML } from './clinicalTrace.js?v=physician-ai-colleague-v1';
-import { riskSpaceView } from './riskSpaceView.js?v=physician-ai-colleague-v1';
-import { screeningView } from './screeningView.js?v=physician-ai-colleague-v1';
-import { aiColleagueView } from './aiColleagueView.js?v=physician-ai-colleague-v1';
+import { displayValue } from './dashboardAdapter.js?v=physician-ai-runtime-v1';
+import { formatTrendLine } from './wearableSummary.js?v=physician-ai-runtime-v1';
+import { getOverrideTaxonomy } from './apiClient.js?v=physician-ai-runtime-v1';
+import { recommendationTraceHTML, releasePreviewHTML } from './clinicalTrace.js?v=physician-ai-runtime-v1';
+import { riskSpaceView } from './riskSpaceView.js?v=physician-ai-runtime-v1';
+import { screeningView } from './screeningView.js?v=physician-ai-runtime-v1';
+import { aiColleagueView } from './aiColleagueView.js?v=physician-ai-runtime-v1';
 
 // Vitality is out of scope for V1 (Jason, 2026-07-24). The tab is removed from
 // navigation so the surface is unreachable; vitalityView() and its adapter path
