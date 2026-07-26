@@ -738,10 +738,29 @@ export function createCarePlanProposalDraft(inputWorkspace, claimId, options = {
           problem_list_disposition: 'note_only'
         },
         assessment: { value: claim.statement },
-        plan: { value: 'Physician review of this adopted conclusion and its cited evidence is required before any order or chart action.' },
-        order_intents: []
+        plan: { value: 'Illustrative preproduction follow-up is proposed for physician review and editing. Nothing is ordered, transmitted, signed, or written natively.' },
+        order_intents: [{
+          schema_version: 'order_intent.v1',
+          order_intent_id: `order-intent-${draftId}-cbc`,
+          order_type: 'blood_laboratory',
+          display_name: 'Complete blood count',
+          clinical_indication: 'Illustrative preproduction follow-up for the adopted cross-domain claim; physician review required.',
+          catalog_test_key: 'QUEST:CBC-6399',
+          specimen: 'blood',
+          priority: 'routine',
+          collection_method: 'Patient service center',
+          timing: 'Within 14 days if adopted by the physician',
+          inclusion_state: 'included',
+          validation_state: 'valid',
+          execution_state: 'nonexecuting',
+          can_execute: false,
+          can_sign: false,
+          can_send: false,
+          can_transmit: false,
+          can_commit: false
+        }]
       }],
-      order_note: 'No typed order intent was generated because the adopted claim did not include a validated supported order proposal.',
+      order_note: 'Illustrative preproduction order intent for workflow review only. No order is placed, transmitted, signed, sent, or committed.',
       lineage: {
         model: claim.model ?? (workspace.fixtureMode ? 'illustrative-fixture-no-model' : 'gpt-5.6-sol'),
         prompt_version: claim.prompt_version ?? 'care-plan-proposal.v1',

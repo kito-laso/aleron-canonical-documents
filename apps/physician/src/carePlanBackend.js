@@ -122,6 +122,10 @@ export function isPublicStagingLocation(locationLike = globalThis.location) {
   }
 }
 
+export function usesLocalCarePlanStore(locationLike = globalThis.location, fixtureMode = false) {
+  return fixtureMode === true || isPublicStagingLocation(locationLike);
+}
+
 export function isExpectedPublicStagingCarePlanDenial(error, locationLike = globalThis.location) {
   return isPublicStagingLocation(locationLike) && error instanceof CarePlanBackendError && (error.status === 401 || error.status === 403);
 }

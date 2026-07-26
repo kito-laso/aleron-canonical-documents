@@ -44,7 +44,7 @@ import {
   createCodexSubscriptionProvider
 } from './aiColleagueProvider.js?v=physician-ai-care-plan-v4';
 import { createSyntheticCarePlanStore } from './carePlanWorkflow.js?v=physician-ai-care-plan-v4';
-import { adaptCarePlanBackendState, isPublicStagingLocation, payloadFromCarePlanState } from './carePlanBackend.js?v=physician-ai-care-plan-v4';
+import { adaptCarePlanBackendState, isPublicStagingLocation, payloadFromCarePlanState, usesLocalCarePlanStore } from './carePlanBackend.js?v=physician-ai-care-plan-v4';
 
 const app = document.querySelector('#app');
 const state = {
@@ -167,7 +167,8 @@ let carePlanPromotionPending = false;
 const carePlanPhysician = { actor_type: 'physician', actor_id: 'physician-synthetic-1', authorized: true };
 
 function carePlanBackendMode() {
-  return !aiFixtureMode();
+  if (typeof window === 'undefined') return false;
+  return !usesLocalCarePlanStore(window.location, aiFixtureMode());
 }
 
 function codexProvider() {
@@ -459,7 +460,7 @@ async function adoptCase(caseBundle) {
       patientId: aiWorkspace.patientId,
       packetHash: aiWorkspace.packetHash,
       empty: true,
-      hydrate: false
+      hydrate: true
     });
     nextCarePlanClient = null;
     nextCarePlanState = nextCarePlanStore.getState();
