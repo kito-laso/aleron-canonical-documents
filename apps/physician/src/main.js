@@ -4,6 +4,7 @@ Design brief: This screen is for a physician determining whether canonical analy
 import {
   createStructuredEdit,
   getActiveCase,
+  getCarePlanBackendClient,
   getPhysicianBundle,
   getPhysicianAIBackendClient,
   persistStructuredEdit,
@@ -11,10 +12,10 @@ import {
   requestPhysicianAuthorization,
   requestReleasePreview,
   startPhysicianReview
-} from './apiClient.js?v=physician-ai-runtime-v1';
-import { adaptBackendThreadWorkspace, applyLocalDraftEdit } from './aiColleagueBackend.js?v=physician-ai-runtime-v1';
-import { adaptPhysicianCase, artifactBindsCurrentLineage, buildReleasePreviewRequest, releaseIdentifier } from './dashboardAdapter.js?v=physician-ai-runtime-v1';
-import { decisionReasonOptionsHTML, renderDashboard, renderEmptyStaging, renderFatalError } from './dashboardApp.js?v=physician-ai-runtime-v1';
+} from './apiClient.js?v=physician-ai-care-plan-v4';
+import { adaptBackendThreadWorkspace, applyLocalDraftEdit } from './aiColleagueBackend.js?v=physician-ai-care-plan-v4';
+import { adaptPhysicianCase, artifactBindsCurrentLineage, buildReleasePreviewRequest, releaseIdentifier } from './dashboardAdapter.js?v=physician-ai-care-plan-v4';
+import { decisionReasonOptionsHTML, renderDashboard, renderEmptyStaging, renderFatalError } from './dashboardApp.js?v=physician-ai-care-plan-v4';
 import {
   adoptClaim,
   applyProviderConsultation,
@@ -22,9 +23,11 @@ import {
   applyProviderMessage,
   beginClaimAdoption,
   cancelClaimAdoption,
+  createCarePlanProposalDraft,
   createDraft,
   createWorkspaceRepository,
   dismissClaim,
+  markCarePlanProposalPromoted,
   resumeAIWorkspace,
   runFixtureConsultationFollowUp,
   runFixtureConsultation,
@@ -33,13 +36,15 @@ import {
   sendFixtureMessage,
   startNewThread,
   updateDraftContent
-} from './aiColleague.js?v=physician-ai-runtime-v1';
+} from './aiColleague.js?v=physician-ai-care-plan-v4';
 import {
   buildConsultationFollowUpQuestion,
   buildCodexProviderRequest,
   codexModeFromLocation,
   createCodexSubscriptionProvider
-} from './aiColleagueProvider.js?v=physician-ai-runtime-v1';
+} from './aiColleagueProvider.js?v=physician-ai-care-plan-v4';
+import { createSyntheticCarePlanStore } from './carePlanWorkflow.js?v=physician-ai-care-plan-v4';
+import { adaptCarePlanBackendState, payloadFromCarePlanState } from './carePlanBackend.js?v=physician-ai-care-plan-v4';
 
 const app = document.querySelector('#app');
 const state = {
@@ -63,7 +68,12 @@ const state = {
   workflowStatus: null,
   workflowError: null,
   aiWorkspace: null,
-  aiError: null
+  aiError: null,
+  carePlanState: null,
+  carePlanError: null,
+  carePlanLockConfirmationPending: false,
+  carePlanPendingEditMode: false,
+  carePlanMode: 'plan'
 };
 
 function selectedTask() {
@@ -147,6 +157,18 @@ function createAIProviderSessionId() {
 const aiProviderSessionId = createAIProviderSessionId();
 let aiCodexProvider = null;
 const aiLocalDraftEdits = new Map();
+let carePlanStore = null;
+let carePlanClient = null;
+let carePlanAutosaveTimer = null;
+let carePlanSaveInFlight = null;
+const carePlanPendingChanges = new Map();
+let carePlanSessionEpoch = 0;
+let carePlanPromotionPending = false;
+const carePlanPhysician = { actor_type: 'physician', actor_id: 'physician-synthetic-1', authorized: true };
+
+function carePlanBackendMode() {
+  return !aiFixtureMode();
+}
 
 function codexProvider() {
   aiCodexProvider ??= createCodexSubscriptionProvider({ sessionId: aiProviderSessionId });
@@ -192,6 +214,13 @@ function persistAIWorkspace(workspace) {
   state.aiError = null;
   if (!aiBackendMode()) aiRepository().save(state.aiWorkspace);
   render();
+}
+
+function focusAI(selector) {
+  queueMicrotask(() => {
+    const target = document.querySelector(selector);
+    if (typeof target?.focus === 'function') target.focus();
+  });
 }
 
 function adoptBackendAIThread(thread) {
@@ -370,20 +399,85 @@ async function createAIDraft(claimId, draftType) {
   persistAIWorkspace(applyProviderDraft(state.aiWorkspace, response));
 }
 
+async function createAutomaticCarePlanProposal(claimId) {
+  if (!aiBackendMode()) {
+    persistAIWorkspace(createCarePlanProposalDraft(state.aiWorkspace, claimId).workspace);
+    return;
+  }
+  setAIProviderPending();
+  const drafted = await getPhysicianAIBackendClient().createDraft(
+    state.activePatientId,
+    activeAIThread().threadId,
+    claimId,
+    'care_plan_bundle'
+  );
+  if (!drafted.thread) throw new Error('Backend Care Plan proposal drafting returned no aggregate.');
+  adoptBackendAIThread(drafted.thread);
+}
+
+function resetCarePlanSession() {
+  clearTimeout(carePlanAutosaveTimer);
+  carePlanAutosaveTimer = null;
+  carePlanPendingChanges.clear();
+  carePlanSessionEpoch += 1;
+  carePlanPromotionPending = false;
+}
+
 async function adoptCase(caseBundle) {
+  const patientId = caseBundle?.patient_packet?.patient_id ?? caseBundle?.patient_id;
+  const switchingPatient = Boolean(state.activePatientId && patientId && state.activePatientId !== patientId);
   const aiWorkspace = await initializeAIWorkspace(caseBundle);
+  const switchingPacket = Boolean(state.aiWorkspace?.packetHash && state.aiWorkspace.packetHash !== aiWorkspace.packetHash);
+  const switchingContext = switchingPatient || switchingPacket;
+  if (switchingContext && (carePlanPendingChanges.size || carePlanSaveInFlight)) {
+    const saved = await flushCarePlanChanges();
+    if (!saved) throw new Error('Save the current Care Plan before loading a different patient-state packet.');
+  }
   const releasePackage = caseBundle?.release_preview ?? caseBundle?.release_package ?? null;
+  let nextCarePlanStore = carePlanStore;
+  let nextCarePlanClient = carePlanClient;
+  let nextCarePlanState;
+  if (aiFixtureMode()) {
+    const storedCarePlan = nextCarePlanStore?.getState?.();
+    if (switchingPatient || !nextCarePlanStore || storedCarePlan?.patient_reference !== aiWorkspace.patientId || storedCarePlan?.packet_hash !== aiWorkspace.packetHash) {
+      const clinicalPlan = caseBundle?.clinical_plan ?? {};
+      const carePlanEmitted = ['required_items', 'recommended_next_steps', 'non_required_next_steps']
+        .some((key) => Array.isArray(clinicalPlan[key]) && clinicalPlan[key].length > 0);
+      nextCarePlanStore = createSyntheticCarePlanStore({
+        storage: window.localStorage,
+        patientId: aiWorkspace.patientId,
+        packetHash: aiWorkspace.packetHash,
+        empty: !carePlanEmitted,
+        forceNextConflict: new URL(window.location.href).searchParams.get('care_plan_conflict') === '1'
+      });
+    }
+    nextCarePlanClient = null;
+    nextCarePlanState = nextCarePlanStore.getState();
+  } else {
+    nextCarePlanClient = getCarePlanBackendClient();
+    const current = await nextCarePlanClient.current(null, patientId);
+    nextCarePlanState = adaptCarePlanBackendState(current, switchingContext ? null : state.carePlanState, patientId, aiWorkspace.packetHash);
+    nextCarePlanStore = null;
+  }
+  if (switchingContext) resetCarePlanSession();
   state.activeCase = caseBundle;
   state.releasePackage = releasePackageIsCurrent(caseBundle, releasePackage) ? releasePackage : null;
-  const patientId = caseBundle?.patient_packet?.patient_id ?? caseBundle?.patient_id;
   if (patientId) state.activePatientId = patientId;
   state.aiWorkspace = aiWorkspace;
   state.aiError = null;
+  carePlanStore = nextCarePlanStore;
+  carePlanClient = nextCarePlanClient;
+  state.carePlanState = nextCarePlanState;
+  state.carePlanError = null;
   inferReviewStarted();
 }
 
 async function loadCase(patientId) {
   state.workflowError = null;
+  if (state.activePatientId && patientId !== state.activePatientId && (carePlanPendingChanges.size || carePlanSaveInFlight)) {
+    const saved = await flushCarePlanChanges();
+    if (!saved) throw new Error('Save the current patient Care Plan before switching patients.');
+  }
   const caseBundle = await getActiveCase(patientId);
   await adoptCase(caseBundle);
 }
@@ -435,6 +529,123 @@ async function saveDecision(form, actionOverride = null) {
   render();
 }
 
+function applyCarePlanResult(result, fallback = 'Care Plan operation failed.') {
+  if (!result?.ok && state.carePlanState?.source !== 'backend') {
+    const code = result?.error ?? fallback;
+    const failedState = result?.state ?? state.carePlanState;
+    state.carePlanError = code;
+    state.carePlanState = {
+      ...failedState,
+      persistence_state: result?.status === 409 ? 'conflict' : 'save_failed',
+      conflict: result?.status === 409 ? { code, last_safe_persisted_revision: failedState?.server_revision ?? null } : null,
+      ui_error: result?.status === 409
+        ? `Conflict: ${code}. Reload the current revision before continuing.`
+        : `${code}. The note remains unlocked at the last acknowledged revision.`
+    };
+    render();
+    return false;
+  }
+  state.carePlanState = result?.state ?? result;
+  state.carePlanError = null;
+  render();
+  return true;
+}
+
+function failCarePlan(error, fallback = 'Care Plan operation failed.') {
+  const code = error?.code ?? error?.backend?.error ?? error?.message ?? fallback;
+  state.carePlanError = code;
+  if (state.carePlanState) {
+    state.carePlanState = {
+      ...state.carePlanState,
+      persistence_state: error?.status === 409 ? 'conflict' : 'save_failed',
+      conflict: error?.status === 409 ? { code, last_safe_persisted_revision: error.lastSafePersistedRevision } : null,
+      ui_error: error?.status === 409
+        ? `Conflict: ${code}. Reload the server revision before continuing.`
+        : `${code}. The note remains unlocked at the last acknowledged server revision.`
+    };
+  }
+  render();
+  return false;
+}
+
+function carePlanEntryIndex(entryId) {
+  return state.carePlanState?.entries?.findIndex((entry) => entry.entry_id === entryId) ?? -1;
+}
+
+function setCarePlanPath(target, path, value) {
+  const parts = path.split('.');
+  let current = target;
+  for (const key of parts.slice(0, -1)) current = current[Number.isInteger(Number(key)) ? Number(key) : key];
+  current[parts.at(-1)] = value;
+}
+
+function queueCarePlanChange(path, value) {
+  if (state.carePlanState?.persistence_state === 'conflict') return;
+  carePlanPendingChanges.set(path, value);
+  clearTimeout(carePlanAutosaveTimer);
+  state.carePlanState = { ...state.carePlanState, persistence_state: 'dirty' };
+  carePlanAutosaveTimer = setTimeout(() => { void flushCarePlanChanges(); }, 1000);
+}
+
+async function flushCarePlanChanges() {
+  clearTimeout(carePlanAutosaveTimer);
+  if (carePlanSaveInFlight) {
+    const priorSaved = await carePlanSaveInFlight;
+    if (!priorSaved) return false;
+    return carePlanPendingChanges.size ? flushCarePlanChanges() : true;
+  }
+  if (!carePlanPendingChanges.size) return true;
+  const operation = performCarePlanFlush();
+  carePlanSaveInFlight = operation;
+  try {
+    return await operation;
+  } finally {
+    if (carePlanSaveInFlight === operation) carePlanSaveInFlight = null;
+  }
+}
+
+async function performCarePlanFlush() {
+  clearTimeout(carePlanAutosaveTimer);
+  if (!carePlanPendingChanges.size) return true;
+  const sessionEpoch = carePlanSessionEpoch;
+  const patientReference = state.activePatientId;
+  const changes = [...carePlanPendingChanges].map(([path, value]) => ({ path, value }));
+  carePlanPendingChanges.clear();
+  if (!carePlanBackendMode()) {
+    const current = carePlanStore.getState();
+    if (current.patient_reference !== patientReference || sessionEpoch !== carePlanSessionEpoch) return false;
+    return applyCarePlanResult(carePlanStore.saveDraft({
+      base_server_revision: current.server_revision,
+      client_revision: current.client_revision + 1,
+      idempotency_key: `care-plan-save-${current.server_revision}-${Date.now()}`,
+      actor: carePlanPhysician,
+      changes
+    }), 'Draft save failed.');
+  }
+  const prior = structuredClone(state.carePlanState);
+  try {
+    for (const change of changes) setCarePlanPath(prior, change.path, structuredClone(change.value));
+    prior.persistence_state = 'saving';
+    state.carePlanState = prior;
+    render();
+    const nextPayload = payloadFromCarePlanState(prior);
+    const saved = await carePlanClient.save(prior.backend_record, nextPayload, prior);
+    if (sessionEpoch !== carePlanSessionEpoch || state.activePatientId !== patientReference) return false;
+    state.carePlanState = saved.state;
+    state.carePlanError = null;
+    render();
+    return true;
+  } catch (error) {
+    if (sessionEpoch === carePlanSessionEpoch && state.activePatientId === patientReference) for (const change of changes) carePlanPendingChanges.set(change.path, change.value);
+    return failCarePlan(error, 'Draft save failed.');
+  }
+}
+
+function carePlanCommandBase() {
+  const current = carePlanStore.getState();
+  return { base_server_revision: current.server_revision, actor: carePlanPhysician };
+}
+
 function attachListeners() {
   document.querySelectorAll('[data-decision-action]').forEach((select) => select.addEventListener('change', () => {
     const reasonSelect = select.closest('form')?.querySelector('[data-decision-reason]');
@@ -457,6 +668,27 @@ function attachListeners() {
     state.activeTab = button.dataset.tab;
     render();
   }));
+
+  document.querySelectorAll('[data-care-plan-mode]').forEach((button) => button.addEventListener('click', () => {
+    state.carePlanMode = button.dataset.carePlanMode;
+    render();
+  }));
+
+  document.querySelector('[data-care-plan-reload-conflict]')?.addEventListener('click', async () => {
+    try {
+      clearTimeout(carePlanAutosaveTimer);
+      const reloadedState = carePlanClient
+        ? adaptCarePlanBackendState(await carePlanClient.current(null, state.activePatientId), null, state.activePatientId)
+        : carePlanStore?.getState?.();
+      if (!reloadedState) throw new Error('Current Care Plan draft is unavailable.');
+      carePlanPendingChanges.clear();
+      state.carePlanState = reloadedState;
+      state.carePlanError = null;
+      render();
+    } catch (error) {
+      failCarePlan(error, 'Care Plan reload failed.');
+    }
+  });
 
   document.querySelector('[data-ai-new-thread]')?.addEventListener('click', async () => {
     try {
@@ -530,6 +762,7 @@ function attachListeners() {
 
   document.querySelectorAll('[data-ai-begin-adoption]').forEach((button) => button.addEventListener('click', () => {
     persistAIWorkspace(beginClaimAdoption(state.aiWorkspace, button.dataset.aiBeginAdoption));
+    focusAI('[data-ai-adopt]');
   }));
 
   document.querySelector('[data-ai-cancel-adoption]')?.addEventListener('click', () => {
@@ -539,7 +772,10 @@ function attachListeners() {
   document.querySelectorAll('[data-ai-adopt]').forEach((button) => button.addEventListener('click', async () => {
     try {
       if (!aiBackendMode()) {
-        persistAIWorkspace(adoptClaim(state.aiWorkspace, button.dataset.aiAdopt, { confirmedStatement: button.dataset.aiConfirmedStatement }));
+        const adopted = adoptClaim(state.aiWorkspace, button.dataset.aiAdopt, { confirmedStatement: button.dataset.aiConfirmedStatement });
+        persistAIWorkspace(adopted);
+        await createAutomaticCarePlanProposal(button.dataset.aiAdopt);
+        focusAI('[data-ai-promote-care-plan]');
         return;
       }
       setAIProviderPending();
@@ -551,6 +787,17 @@ function attachListeners() {
       );
       if (!result.thread) throw new Error('Backend physician AI adoption returned no aggregate.');
       adoptBackendAIThread(result.thread);
+      await createAutomaticCarePlanProposal(button.dataset.aiAdopt);
+      focusAI('[data-ai-promote-care-plan]');
+    } catch (error) {
+      failAI(error);
+    }
+  }));
+
+  document.querySelectorAll('[data-ai-retry-care-plan-proposal]').forEach((button) => button.addEventListener('click', async () => {
+    try {
+      await createAutomaticCarePlanProposal(button.dataset.aiRetryCarePlanProposal);
+      focusAI('[data-ai-promote-care-plan]');
     } catch (error) {
       failAI(error);
     }
@@ -576,9 +823,56 @@ function attachListeners() {
     }
   }));
 
+  document.querySelectorAll('[data-ai-promote-care-plan]').forEach((button) => button.addEventListener('click', async () => {
+    if (carePlanPromotionPending) return;
+    carePlanPromotionPending = true;
+    button.disabled = true;
+    button.setAttribute?.('aria-busy', 'true');
+    try {
+      const draftId = button.dataset.aiPromoteCarePlan;
+      const draft = activeAIThread()?.drafts.find((candidate) => candidate.draft_id === draftId);
+      if (!draft) throw new Error('Care Plan proposal draft was not found.');
+      if (!carePlanBackendMode()) {
+        const current = carePlanStore.getState();
+        const promotionEventId = `promotion-${draftId}-${current.server_revision + 1}`;
+        const promoted = carePlanStore.promoteDraftProposal({ actor: carePlanPhysician, base_server_revision: current.server_revision, client_revision: current.client_revision + 1, proposal: draft, promotion_event_id: promotionEventId });
+        if (!promoted.ok) throw new Error(promoted.error ?? 'Care Plan proposal promotion failed.');
+        state.carePlanState = promoted.state;
+        persistAIWorkspace(markCarePlanProposalPromoted(state.aiWorkspace, draftId, promotionEventId));
+      } else {
+        if (state.activeCase?.readiness?.ready_for_review !== true) throw new Error('Care Plan promotion requires current review-ready analysis.');
+        const result = await carePlanClient.promote(state.carePlanState, { sourceThreadId: activeAIThread().threadId, sourceDraftId: draftId });
+        state.carePlanState = result.state;
+        if (result.thread) adoptBackendAIThread(result.thread);
+        else state.aiWorkspace = markCarePlanProposalPromoted(state.aiWorkspace, draftId, result.promotion_event_id);
+      }
+      state.activeTab = 'care-plan';
+      state.carePlanMode = 'note';
+      render();
+      queueMicrotask(() => {
+        const target = document.querySelector(`[data-care-plan-entry="entry-${draftId}-1"]`);
+        if (!target) return;
+        target.setAttribute?.('tabindex', '-1');
+        target.focus?.({ preventScroll: true });
+        target.scrollIntoView?.({ block: 'start' });
+      });
+    } catch (error) {
+      failAI(error);
+    } finally {
+      carePlanPromotionPending = false;
+    }
+  }));
+
+  document.querySelectorAll('[data-ai-open-care-plan]').forEach((button) => button.addEventListener('click', () => {
+    state.activeTab = 'care-plan';
+    state.carePlanMode = 'note';
+    render();
+  }));
+
   document.querySelectorAll('[data-ai-draft]').forEach((button) => button.addEventListener('click', async () => {
     try {
       await createAIDraft(button.dataset.aiClaim, button.dataset.aiDraft);
+      focusAI('.ai-draft textarea');
     } catch (error) {
       failAI(error);
     }
@@ -860,6 +1154,163 @@ function attachListeners() {
     } catch (error) {
       fail(error, 'Final release failed.');
     }
+  });
+
+  document.querySelectorAll('[data-care-plan-field]').forEach((field) => field.addEventListener('input', () => {
+    queueCarePlanChange(`${field.dataset.carePlanField}.value`, field.value);
+  }));
+  document.querySelectorAll('[data-care-plan-problem-label]').forEach((field) => field.addEventListener('input', () => {
+    const index = carePlanEntryIndex(field.dataset.carePlanProblemLabel);
+    if (index >= 0) queueCarePlanChange(`entries.${index}.problem.proposed_label.value`, field.value);
+  }));
+  document.querySelectorAll('[data-care-plan-assessment]').forEach((field) => field.addEventListener('input', () => {
+    const index = carePlanEntryIndex(field.dataset.carePlanAssessment);
+    if (index >= 0) queueCarePlanChange(`entries.${index}.assessment.value`, field.value);
+  }));
+  document.querySelectorAll('[data-care-plan-plan]').forEach((field) => field.addEventListener('input', () => {
+    const index = carePlanEntryIndex(field.dataset.carePlanPlan);
+    if (index >= 0) queueCarePlanChange(`entries.${index}.plan.value`, field.value);
+  }));
+  document.querySelectorAll('[data-care-plan-certainty]').forEach((field) => field.addEventListener('change', () => {
+    const index = carePlanEntryIndex(field.dataset.carePlanCertainty);
+    if (index >= 0) { queueCarePlanChange(`entries.${index}.problem.diagnostic_certainty`, field.value); flushCarePlanChanges(); }
+  }));
+  document.querySelectorAll('[data-care-plan-disposition]').forEach((field) => field.addEventListener('change', () => {
+    const index = carePlanEntryIndex(field.dataset.carePlanDisposition);
+    if (index >= 0) { queueCarePlanChange(`entries.${index}.problem.problem_list_disposition`, field.value); flushCarePlanChanges(); }
+  }));
+  document.querySelectorAll('[data-care-plan-entry-inclusion]').forEach((field) => field.addEventListener('change', () => {
+    const index = carePlanEntryIndex(field.dataset.carePlanEntryInclusion);
+    if (index < 0) return;
+    const entry = state.carePlanState.entries[index];
+    if (field.value === 'removed' && entry.order_intents.some((order) => order.inclusion_state === 'included')) {
+      state.carePlanError = 'Resolve every nested order before removing this problem.';
+      render();
+      return;
+    }
+    queueCarePlanChange(`entries.${index}.problem.entry_inclusion`, field.value);
+    flushCarePlanChanges();
+  }));
+  document.querySelectorAll('[data-care-plan-order-field]').forEach((field) => field.addEventListener('input', () => {
+    const [orderId, property] = field.dataset.carePlanOrderField.split(':');
+    state.carePlanState.entries.forEach((entry, entryIndex) => {
+      const orderIndex = entry.order_intents.findIndex((order) => order.order_intent_id === orderId);
+      if (orderIndex >= 0) queueCarePlanChange(`entries.${entryIndex}.order_intents.${orderIndex}.${property}`, field.value);
+    });
+  }));
+  document.querySelectorAll('[data-care-plan-catalog]').forEach((button) => button.addEventListener('click', () => {
+    flushCarePlanChanges();
+    applyCarePlanResult(carePlanStore.matchCatalog({ ...carePlanCommandBase(), order_intent_id: button.dataset.carePlanCatalog, catalog_test_key: 'QUEST:A1C-496', idempotency_key: `catalog-${Date.now()}` }));
+  }));
+  document.querySelectorAll('[data-care-plan-order-toggle]').forEach((button) => button.addEventListener('click', () => {
+    flushCarePlanChanges();
+    const order = carePlanStore.getState().entries.flatMap((entry) => entry.order_intents).find((candidate) => candidate.order_intent_id === button.dataset.carePlanOrderToggle);
+    applyCarePlanResult(carePlanStore.setOrderInclusion({ ...carePlanCommandBase(), order_intent_id: order.order_intent_id, inclusion_state: order.inclusion_state === 'included' ? 'excluded' : 'included', idempotency_key: `order-toggle-${Date.now()}` }));
+  }));
+  document.querySelectorAll('[data-care-plan-add-order]').forEach((button) => button.addEventListener('click', () => {
+    flushCarePlanChanges();
+    applyCarePlanResult(carePlanStore.addOrder({ ...carePlanCommandBase(), entry_id: button.dataset.carePlanAddOrder, idempotency_key: `add-order-${Date.now()}`, order: { display_name: 'Ferritin', clinical_indication: 'Evaluate persistent fatigue.', catalog_test_key: 'QUEST:FERRITIN-457', specimen: 'serum', priority: 'routine', collection_method: 'Quest patient service center', timing: 'Within 14 days', ordering_physician_id: carePlanPhysician.actor_id, duplicate_check: 'clear' } }));
+  }));
+  document.querySelector('[data-care-plan-authorize-orders]')?.addEventListener('click', async () => {
+    if (!(await flushCarePlanChanges())) return;
+    const attested = document.querySelector('[data-care-plan-order-attestation]')?.checked === true;
+    try {
+      if (carePlanBackendMode()) {
+        state.carePlanState = await carePlanClient.authorize(state.carePlanState, { attested });
+        state.carePlanError = null;
+        render();
+        return;
+      }
+      const current = carePlanStore.getState();
+      applyCarePlanResult(carePlanStore.authorizeOrders({ actor: carePlanPhysician, draft_revision: current.server_revision, payload_hash: current.order_set_hash, idempotency_key: `authorize-${current.server_revision}`, attested, interaction_nonce: `orders-${Date.now()}` }));
+    } catch (error) { failCarePlan(error, 'Order authorization failed.'); }
+  });
+  document.querySelector('[data-care-plan-begin-lock]')?.addEventListener('click', async () => {
+    if (!(await flushCarePlanChanges())) return;
+    const attested = document.querySelector('[data-care-plan-lock-attestation]')?.checked === true;
+    const pendingAck = document.querySelector('[data-care-plan-pending-ack]');
+    const pending_orders_acknowledged = pendingAck ? pendingAck.checked === true : true;
+    if (!attested || !pending_orders_acknowledged) {
+      failCarePlan(new Error('Review the required note-lock attestation before continuing.'));
+      return;
+    }
+    state.carePlanLockConfirmationPending = true;
+    render();
+  });
+  document.querySelector('[data-care-plan-cancel-lock]')?.addEventListener('click', () => {
+    state.carePlanLockConfirmationPending = false;
+    render();
+  });
+  document.querySelector('[data-care-plan-lock-note]')?.addEventListener('click', async () => {
+    try {
+      if (carePlanBackendMode()) {
+        state.carePlanState = await carePlanClient.lock(state.carePlanState, { attested: true, pendingOrdersAcknowledged: true, secondConfirmation: true });
+        state.carePlanError = null;
+        state.carePlanLockConfirmationPending = false;
+        render();
+        return;
+      }
+      const current = carePlanStore.getState();
+      state.carePlanLockConfirmationPending = false;
+      applyCarePlanResult(carePlanStore.lockNote({ actor: carePlanPhysician, draft_revision: current.server_revision, payload_hash: current.note_hash, problem_mutation_set_hash: current.problem_mutation_set_hash, idempotency_key: `lock-${current.server_revision}`, attested: true, interaction_nonce: `lock-${Date.now()}`, pending_orders_acknowledged: true, second_confirmation: true }));
+    } catch (error) { failCarePlan(error, 'Note lock failed.'); }
+  });
+  document.querySelector('[data-care-plan-pending-begin-revise]')?.addEventListener('click', () => {
+    state.carePlanPendingEditMode = true;
+    render();
+    queueMicrotask(() => document.querySelector('[data-care-plan-pending-timing]')?.focus());
+  });
+  document.querySelector('[data-care-plan-pending-cancel-edit]')?.addEventListener('click', () => {
+    state.carePlanPendingEditMode = false;
+    render();
+  });
+  document.querySelector('[data-care-plan-pending-authorize]')?.addEventListener('click', async () => {
+    const pending = state.carePlanState.pending_order_set;
+    const attested = document.querySelector('[data-care-plan-pending-attestation]')?.checked === true;
+    try {
+      if (!attested) throw new Error('Physician attestation is required for the exact pending order set.');
+      if (carePlanBackendMode()) state.carePlanState = await carePlanClient.authorize(state.carePlanState, { attested, pending });
+      else applyCarePlanResult(carePlanStore.authorizeOrders({ actor: carePlanPhysician, draft_revision: state.carePlanState.server_revision, payload_hash: pending.payload_hash, pending_snapshot_id: pending.snapshot_id, pending_snapshot_revision: pending.snapshot_revision, idempotency_key: `pending-authorize-${pending.snapshot_revision}`, attested, interaction_nonce: `pending-authorize-${Date.now()}` }));
+      state.carePlanPendingEditMode = false;
+      if (carePlanBackendMode()) { state.carePlanError = null; render(); }
+    } catch (error) { failCarePlan(error, 'Pending order authorization failed.'); }
+  });
+  document.querySelector('[data-care-plan-pending-revise]')?.addEventListener('click', async () => {
+    const pending = state.carePlanState.pending_order_set;
+    const orderIntentId = document.querySelector('[data-care-plan-pending-order]')?.value;
+    const timing = document.querySelector('[data-care-plan-pending-timing]')?.value;
+    try {
+      state.carePlanPendingEditMode = false;
+      if (carePlanBackendMode()) state.carePlanState = await carePlanClient.revisePending(state.carePlanState, { orderIntentId, changes: { timing }, reason: 'Physician revised collection timing after note lock.' });
+      else applyCarePlanResult(carePlanStore.revisePendingOrderSet({ actor: carePlanPhysician, snapshot_id: pending.snapshot_id, expected_revision: pending.snapshot_revision, expected_payload_hash: pending.payload_hash, order_intent_id: orderIntentId, changes: { timing }, reason: 'Physician revised collection timing after note lock.' }));
+      if (carePlanBackendMode()) { state.carePlanError = null; render(); }
+    } catch (error) { failCarePlan(error, 'Pending order revision failed.'); }
+  });
+  document.querySelector('[data-care-plan-pending-cancel]')?.addEventListener('click', async () => {
+    const pending = state.carePlanState.pending_order_set;
+    const orderIntentId = document.querySelector('[data-care-plan-pending-order]')?.value;
+    try {
+      state.carePlanPendingEditMode = false;
+      if (carePlanBackendMode()) state.carePlanState = await carePlanClient.cancelPending(state.carePlanState, { orderIntentId, reason: 'Physician cancelled this pending intent after note lock.' });
+      else applyCarePlanResult(carePlanStore.cancelPendingIntent({ actor: carePlanPhysician, snapshot_id: pending.snapshot_id, expected_revision: pending.snapshot_revision, expected_payload_hash: pending.payload_hash, order_intent_id: orderIntentId, reason: 'Physician cancelled this pending intent after note lock.' }));
+      if (carePlanBackendMode()) { state.carePlanError = null; render(); }
+    } catch (error) { failCarePlan(error, 'Pending order cancellation failed.'); }
+  });
+  document.querySelector('[data-care-plan-pending-leave]')?.addEventListener('click', async () => {
+    const pending = state.carePlanState.pending_order_set;
+    try {
+      state.carePlanPendingEditMode = false;
+      if (carePlanBackendMode()) state.carePlanState = await carePlanClient.leavePending(state.carePlanState, { reason: 'Physician intentionally left this exact set pending.' });
+      else applyCarePlanResult(carePlanStore.leavePending({ actor: carePlanPhysician, snapshot_id: pending.snapshot_id }));
+      if (carePlanBackendMode()) { state.carePlanError = null; render(); }
+    } catch (error) { failCarePlan(error, 'Leave-pending action failed.'); }
+  });
+  document.querySelector('[data-care-plan-reset]')?.addEventListener('click', () => {
+    carePlanPendingChanges.clear();
+    carePlanStore.reset();
+    state.carePlanState = carePlanStore.getState();
+    state.carePlanError = null;
+    render();
   });
 
   document.querySelector('[data-sign-out]')?.addEventListener('click', () => {

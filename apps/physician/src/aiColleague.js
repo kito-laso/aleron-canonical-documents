@@ -7,6 +7,10 @@ function array(value) {
   return Array.isArray(value) ? value : [];
 }
 
+function assertClosed(value, allowed, label) {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some((key) => !allowed.includes(key))) throw new Error(`${label} contains an unknown field.`);
+}
+
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
@@ -227,6 +231,7 @@ export function resumeAIWorkspace(caseBundle, repository, options = {}) {
   const seed = createInitialAIWorkspace(caseBundle, options);
   const stored = repository?.load(seed.patientId);
   if (!stored) return seed;
+  if (stored.packetHash !== seed.packetHash) return seed;
   return attachActiveThread({
     ...stored,
     patientDisplayName: seed.patientDisplayName,
@@ -458,13 +463,33 @@ export function applyProviderDraft(inputWorkspace, response) {
   const thread = activeThread(workspace);
   const draft = response.draft ? clone(response.draft) : null;
   if (!draft || array(response.claims).length) throw new Error('Codex draft response shape is invalid.');
+  assertClosed(draft, ['draft_id', 'draft_type', 'patient_reference', 'source_thread_id', 'source_message_id', 'adopted_claim_ids', 'source_claim_state', 'patient_context_packet_hash', 'model', 'provider', 'prompt_version', 'evidence_refs', 'physician_edit_state', 'execution_state', 'chart_write_performed', 'can_execute', 'can_sign', 'can_send', 'can_transmit', 'can_commit', 'promotion_state', 'promotion_event_id', 'promoted_at', 'created_at', 'disclosure', 'proposal_bundle', 'content', 'preserved_uncertainties'], 'Codex draft');
   if (draft.patient_reference !== workspace.patientId || draft.source_thread_id !== thread?.threadId) {
     throw new Error('Codex draft does not belong to the active patient thread.');
   }
   if (draft.patient_context_packet_hash !== workspace.packetHash) throw new Error('Codex draft packet hash is invalid.');
   if (draft.model !== 'gpt-5.6-sol' || draft.provider !== 'codex_subscription') throw new Error('Codex draft lineage is invalid.');
-  if (draft.execution_state !== 'nonexecuting' || draft.chart_write_performed !== false) {
+  if (draft.execution_state !== 'nonexecuting' || draft.chart_write_performed !== false || !['can_execute', 'can_sign', 'can_send', 'can_transmit', 'can_commit'].every((key) => draft[key] === false)) {
     throw new Error('Codex draft violated the nonexecution boundary.');
+  }
+  if (draft.draft_type === 'care_plan_bundle') {
+    const bundle = draft.proposal_bundle;
+    assertClosed(bundle, ['schema_version', 'proposal_id', 'patient_reference', 'patient_context_packet_hash', 'source_thread_id', 'source_message_id', 'source_adopted_claim_id', 'source_claim_state', 'narrative', 'entries', 'order_note', 'lineage'], 'Care Plan proposal bundle');
+    assertClosed(bundle.narrative, ['value'], 'Care Plan proposal narrative');
+    assertClosed(bundle.lineage, ['model', 'prompt_version', 'evidence_refs', 'patient_source_refs'], 'Care Plan proposal lineage');
+    if (!Array.isArray(bundle.entries) || !bundle.entries.length) throw new Error('Care Plan proposal entries are required.');
+    for (const entry of bundle.entries) {
+      assertClosed(entry, ['proposal_entry_id', 'problem', 'assessment', 'plan', 'order_intents'], 'Care Plan proposal entry');
+      assertClosed(entry.problem, ['proposed_label', 'problem_kind', 'diagnostic_certainty', 'problem_list_disposition'], 'Care Plan proposal problem');
+      assertClosed(entry.problem.proposed_label, ['value'], 'Care Plan proposal label');
+      assertClosed(entry.assessment, ['value'], 'Care Plan proposal assessment');
+      assertClosed(entry.plan, ['value'], 'Care Plan proposal plan');
+      if (!Array.isArray(entry.order_intents)) throw new Error('Care Plan proposal order intents must be an array.');
+      for (const order of entry.order_intents) {
+        assertClosed(order, ['schema_version', 'order_intent_id', 'order_type', 'display_name', 'clinical_indication', 'catalog_test_key', 'specimen', 'priority', 'collection_method', 'timing', 'inclusion_state', 'validation_state', 'execution_state', 'can_execute', 'can_sign', 'can_send', 'can_transmit', 'can_commit'], 'Care Plan proposal order intent');
+        if (order.execution_state !== 'nonexecuting' || !['can_execute', 'can_sign', 'can_send', 'can_transmit', 'can_commit'].every((key) => order[key] === false)) throw new Error('Care Plan proposal order intent violated the nonexecution boundary.');
+      }
+    }
   }
   const adoptedIds = new Set(thread.claims.filter((claim) => claim.state === 'adopted').map((claim) => claim.claim_id));
   if (!array(draft.adopted_claim_ids).length || draft.adopted_claim_ids.some((id) => !adoptedIds.has(id))) {
@@ -641,6 +666,12 @@ export function createDraft(inputWorkspace, claimId, draftType, options = {}) {
     physician_edit_state: 'unedited',
     execution_state: 'nonexecuting',
     chart_write_performed: false,
+    can_execute: false,
+    can_sign: false,
+    can_send: false,
+    can_transmit: false,
+    can_commit: false,
+    disclosure: 'Illustrative fixture response, not model generated',
     created_at: createdAt,
     content: draftType === 'note_section'
       ? `Fatigue may be partly related to sleep-disordered breathing. Available wearable data are suggestive but not diagnostic; formal sleep testing and a complete symptom timeline are not emitted.`
@@ -649,6 +680,95 @@ export function createDraft(inputWorkspace, claimId, draftType, options = {}) {
   thread.drafts.push(draft);
   thread.lastActivity = createdAt;
   return { workspace: replaceThread(workspace, thread), draft };
+}
+
+export function createCarePlanProposalDraft(inputWorkspace, claimId, options = {}) {
+  const workspace = clone(inputWorkspace);
+  const thread = activeThread(workspace);
+  const claim = thread?.claims.find((candidate) => candidate.claim_id === claimId);
+  if (!claim || claim.state !== 'adopted') throw new Error('Care Plan proposal drafting requires an explicitly adopted conclusion.');
+  const existing = thread.drafts.find((draft) => draft.draft_type === 'care_plan_bundle' && array(draft.adopted_claim_ids).includes(claimId));
+  if (existing) return { workspace, draft: clone(existing) };
+  const createdAt = options.now ?? new Date().toISOString();
+  const draftId = nextId('draft', workspace);
+  const sourceMessageId = [...thread.messages].reverse()
+    .find((message) => array(message.claim_ids).includes(claimId))?.message_id ?? null;
+  if (!sourceMessageId) throw new Error('Care Plan proposal source message could not be resolved.');
+  const draft = {
+    draft_id: draftId,
+    draft_type: 'care_plan_bundle',
+    patient_reference: workspace.patientId,
+    source_thread_id: thread.threadId,
+    source_message_id: sourceMessageId,
+    adopted_claim_ids: [claimId],
+    source_claim_state: 'adopted',
+    patient_context_packet_hash: workspace.packetHash,
+    model: claim.model ?? (workspace.fixtureMode ? 'illustrative-fixture-no-model' : 'gpt-5.6-sol'),
+    prompt_version: claim.prompt_version ?? 'care-plan-proposal.v1',
+    evidence_refs: array(claim.evidence_refs),
+    physician_edit_state: 'unedited',
+    execution_state: 'nonexecuting',
+    chart_write_performed: false,
+    can_execute: false,
+    can_sign: false,
+    can_send: false,
+    can_transmit: false,
+    can_commit: false,
+    promotion_state: 'ready_for_promotion',
+    promotion_event_id: null,
+    promoted_at: null,
+    created_at: createdAt,
+    disclosure: workspace.fixtureMode ? 'Illustrative fixture response, not model generated' : 'AI-generated draft for physician review',
+    proposal_bundle: {
+      schema_version: 'care_plan_ai_proposal_bundle.v1',
+      proposal_id: `proposal-${draftId}`,
+      patient_reference: workspace.patientId,
+      patient_context_packet_hash: workspace.packetHash,
+      source_thread_id: thread.threadId,
+      source_message_id: sourceMessageId,
+      source_adopted_claim_id: claimId,
+      source_claim_state: 'adopted',
+      narrative: { value: claim.statement },
+      entries: [{
+        proposal_entry_id: `proposal-entry-${draftId}`,
+        problem: {
+          proposed_label: { value: 'Adopted conclusion under evaluation' },
+          problem_kind: 'issue_under_evaluation',
+          diagnostic_certainty: 'provisional',
+          problem_list_disposition: 'note_only'
+        },
+        assessment: { value: claim.statement },
+        plan: { value: 'Physician review of this adopted conclusion and its cited evidence is required before any order or chart action.' },
+        order_intents: []
+      }],
+      order_note: 'No typed order intent was generated because the adopted claim did not include a validated supported order proposal.',
+      lineage: {
+        model: claim.model ?? (workspace.fixtureMode ? 'illustrative-fixture-no-model' : 'gpt-5.6-sol'),
+        prompt_version: claim.prompt_version ?? 'care-plan-proposal.v1',
+        evidence_refs: array(claim.evidence_refs),
+        patient_source_refs: array(claim.patient_source_refs)
+      }
+    }
+  };
+  thread.drafts.push(draft);
+  thread.lastActivity = createdAt;
+  return { workspace: replaceThread(workspace, thread), draft: clone(draft) };
+}
+
+export function markCarePlanProposalPromoted(inputWorkspace, draftId, promotionEventId, options = {}) {
+  const workspace = clone(inputWorkspace);
+  const thread = activeThread(workspace);
+  const draft = thread?.drafts.find((candidate) => candidate.draft_id === draftId);
+  if (!draft || draft.draft_type !== 'care_plan_bundle') throw new Error('Care Plan proposal draft was not found.');
+  if (draft.promotion_state === 'promoted') {
+    if (draft.promotion_event_id !== promotionEventId) throw new Error('Care Plan proposal was already promoted by another event.');
+    return workspace;
+  }
+  draft.promotion_state = 'promoted';
+  draft.promotion_event_id = promotionEventId;
+  draft.promoted_at = options.now ?? new Date().toISOString();
+  thread.lastActivity = draft.promoted_at;
+  return replaceThread(workspace, thread);
 }
 
 export function updateDraftContent(inputWorkspace, draftId, content, options = {}) {

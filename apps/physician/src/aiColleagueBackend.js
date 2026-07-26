@@ -3,7 +3,8 @@ const WORKSPACE_SCHEMA = 'aleron.physician-ai-workspace.v1';
 const DISCLOSURE = 'Illustrative fixture response, not model generated';
 const PROVIDER = Object.freeze({ provider_id: 'synthetic_fixture', execution_mode: 'illustrative_fixture', model: 'illustrative-fixture-no-model' });
 const CONSULTATION_TYPES = new Set(['challenge', 'blind_second_opinion', 'specialist', 'evidence_review', 'data_audit']);
-const DRAFT_TYPES = new Set(['note_section', 'recommendation', 'problem_proposal', 'order_intent']);
+const DRAFT_TYPES = new Set(['note_section', 'recommendation', 'problem_proposal', 'order_intent', 'care_plan_bundle']);
+const CAPABILITY_FIELDS = Object.freeze(['can_execute', 'can_sign', 'can_send', 'can_transmit', 'can_commit']);
 const SPECIALTIES = new Set(['General Internal Medicine', 'Cardiology', 'Endocrinology', 'Sleep Medicine', 'Clinical Pharmacology', 'Neurology', 'Psychiatry']);
 
 function clone(value) {
@@ -145,7 +146,8 @@ function validateConsultation(consultation, thread, claimIds, consultationIds) {
 }
 
 function validateDraft(draft, thread, claimById, messageIds) {
-  onlyKeys(draft, ['draft_id', 'draft_type', 'patient_reference', 'source_thread_id', 'source_message_id', 'adopted_claim_ids', 'patient_context_packet_hash', 'model', 'prompt_version', 'evidence_refs', 'physician_edit_state', 'execution_state', 'chart_write_performed', 'can_execute', 'can_sign', 'can_send', 'can_transmit', 'can_commit', 'created_at', 'content', 'disclosure'], 'physician AI draft');
+  const carePlanFields = draft.draft_type === 'care_plan_bundle' ? ['source_claim_state', 'promotion_state', 'promotion_event_id', 'promoted_at', 'proposal_bundle'] : [];
+  onlyKeys(draft, ['draft_id', 'draft_type', 'patient_reference', 'source_thread_id', 'source_message_id', 'adopted_claim_ids', 'patient_context_packet_hash', 'model', 'prompt_version', 'evidence_refs', 'physician_edit_state', 'execution_state', 'chart_write_performed', 'can_execute', 'can_sign', 'can_send', 'can_transmit', 'can_commit', 'created_at', 'content', 'disclosure', ...carePlanFields], 'physician AI draft');
   nonEmpty(draft.draft_id, 'draft.draft_id');
   if (!DRAFT_TYPES.has(draft.draft_type)) throw new Error('physician AI draft type is incompatible.');
   if (draft.patient_reference !== thread.patient_id || draft.source_thread_id !== thread.thread_id || draft.patient_context_packet_hash !== thread.context.packet_hash) throw new Error('physician AI draft lineage does not match the thread patient and packet.');
@@ -154,7 +156,32 @@ function validateDraft(draft, thread, claimById, messageIds) {
   if (draft.execution_state !== 'nonexecuting' || draft.chart_write_performed !== false || ['can_execute', 'can_sign', 'can_send', 'can_transmit', 'can_commit'].some((key) => draft[key] !== false)) throw new Error('physician AI draft violated the nonexecution boundary.');
   if (draft.model !== PROVIDER.model || draft.disclosure !== DISCLOSURE) throw new Error('physician AI draft provider lineage is incompatible.');
   if (!['unedited', 'edited'].includes(draft.physician_edit_state)) throw new Error('physician AI draft edit state is incompatible.');
-  nonEmpty(draft.content, 'draft.content');
+  if (draft.draft_type === 'care_plan_bundle') {
+    if (draft.source_claim_state !== 'adopted' || !['ready_for_promotion', 'promoted'].includes(draft.promotion_state)) throw new Error('Care Plan proposal promotion state is incompatible.');
+    const bundle = object(draft.proposal_bundle, 'draft.proposal_bundle');
+    onlyKeys(bundle, ['schema_version', 'proposal_id', 'patient_reference', 'patient_context_packet_hash', 'source_thread_id', 'source_message_id', 'source_adopted_claim_id', 'source_claim_state', 'narrative', 'entries', 'order_note', 'lineage'], 'draft.proposal_bundle');
+    onlyKeys(object(bundle.narrative, 'draft.proposal_bundle.narrative'), ['value'], 'draft.proposal_bundle.narrative');
+    onlyKeys(object(bundle.lineage, 'draft.proposal_bundle.lineage'), ['model', 'prompt_version', 'evidence_refs', 'patient_source_refs'], 'draft.proposal_bundle.lineage');
+    const adoptedClaimIds = array(draft.adopted_claim_ids, 'draft.adopted_claim_ids');
+    if (bundle.schema_version !== 'care_plan_ai_proposal_bundle.v1' || bundle.patient_reference !== thread.patient_id || bundle.patient_context_packet_hash !== thread.context.packet_hash) throw new Error('Care Plan proposal bundle lineage is incompatible.');
+    if (bundle.source_thread_id !== draft.source_thread_id || bundle.source_message_id !== draft.source_message_id || bundle.source_claim_state !== 'adopted' || adoptedClaimIds.length !== 1 || bundle.source_adopted_claim_id !== adoptedClaimIds[0]) throw new Error('Care Plan proposal source lineage is incompatible.');
+    if (draft.promotion_state === 'ready_for_promotion' && (draft.promotion_event_id !== null || draft.promoted_at !== null)) throw new Error('Unpromoted Care Plan proposal carries promotion lineage.');
+    if (draft.promotion_state === 'promoted' && (typeof draft.promotion_event_id !== 'string' || !draft.promotion_event_id || typeof draft.promoted_at !== 'string' || !draft.promoted_at)) throw new Error('Promoted Care Plan proposal lacks promotion lineage.');
+    const entries = array(bundle.entries, 'draft.proposal_bundle.entries');
+    if (!entries.length) throw new Error('Care Plan proposal bundle requires entries.');
+    for (const [index, entryValue] of entries.entries()) {
+      const entry = object(entryValue, `draft.proposal_bundle.entries[${index}]`);
+      onlyKeys(entry, ['proposal_entry_id', 'problem', 'assessment', 'plan', 'order_intents'], `draft.proposal_bundle.entries[${index}]`);
+      onlyKeys(object(entry.problem, 'proposal problem'), ['proposed_label', 'problem_kind', 'diagnostic_certainty', 'problem_list_disposition'], 'proposal problem');
+      onlyKeys(object(entry.assessment, 'proposal assessment'), ['value'], 'proposal assessment');
+      onlyKeys(object(entry.plan, 'proposal plan'), ['value'], 'proposal plan');
+      for (const [orderIndex, orderValue] of array(entry.order_intents, 'proposal order intents').entries()) {
+        const order = object(orderValue, `proposal order intents[${orderIndex}]`);
+        onlyKeys(order, ['schema_version', 'order_intent_id', 'order_type', 'display_name', 'clinical_indication', 'catalog_test_key', 'specimen', 'priority', 'collection_method', 'timing', 'inclusion_state', 'validation_state', 'execution_state', 'can_execute', 'can_sign', 'can_send', 'can_transmit', 'can_commit'], `proposal order intents[${orderIndex}]`);
+        if (order.schema_version !== 'order_intent.v1' || order.order_type !== 'blood_laboratory' || order.execution_state !== 'nonexecuting' || !CAPABILITY_FIELDS.every((key) => order[key] === false)) throw new Error('Care Plan proposal order intent violated the no-authority boundary.');
+      }
+    }
+  } else nonEmpty(draft.content, 'draft.content');
 }
 
 export function validateBackendThread(threadValue, expectedPatientId, expectedPacketHash = null) {

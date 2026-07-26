@@ -78,6 +78,21 @@ function consultationView(consultation, claim) {
 }
 
 function draftView(draft) {
+  if (draft.draft_type === 'care_plan_bundle') {
+    const bundle = draft.proposal_bundle ?? {};
+    const entries = array(bundle.entries);
+    const entry = entries[0] ?? {};
+    const promoted = draft.promotion_state === 'promoted';
+    return `<article class="ai-draft ai-care-plan-proposal">
+      <header><div><span>${promoted ? 'Added to Care Plan draft' : 'Care Plan proposal ready'}</span><strong>Problem · Assessment · Plan · Orders</strong></div><span>Nonexecuting</span></header>
+      <dl><div><dt>Problem</dt><dd>${esc(entry.problem?.proposed_label?.value ?? 'Not emitted')}</dd></div><div><dt>Assessment</dt><dd>${esc(entry.assessment?.value ?? 'Not emitted')}</dd></div><div><dt>Plan</dt><dd>${esc(entry.plan?.value ?? 'Not emitted')}</dd></div><div><dt>Orders</dt><dd>${entry.order_intents?.length ? esc(entry.order_intents.map((order) => order.display_name).join(', ')) : esc(bundle.order_note ?? 'No typed order intent was generated.')}</dd></div></dl>
+      ${promoted
+        ? `<button type="button" data-ai-open-care-plan>Open Draft note</button>`
+        : `<button type="button" class="primary" data-ai-promote-care-plan="${esc(draft.draft_id)}">Promote to Draft note</button>`}
+      <small>Promotion populates an editable Care Plan draft. It does not lock the note, authorize an order, write to the chart, or call an EMR adapter.</small>
+      <details><summary>Source-traced proposal lineage</summary><dl><div><dt>Context packet</dt><dd>${esc(draft.patient_context_packet_hash)}</dd></div><div><dt>Adopted claim</dt><dd>${esc(array(draft.adopted_claim_ids).join(', '))}</dd></div><div><dt>Model</dt><dd>${esc(draft.model)}</dd></div></dl></details>
+    </article>`;
+  }
   const backendEditBoundary = draft.backend_source_content !== undefined
     ? ' Local edits are uncommitted physician-only overlays; the immutable backend source draft remains unchanged and no chart write occurs.'
     : '';
@@ -91,11 +106,10 @@ function draftView(draft) {
 }
 
 function inlineClaimView(claim) {
-  return `<article class="ai-inline-claim" data-ai-inline-claim="${esc(claim.claim_id)}">
-    <span>${esc(stateLabel(claim))}</span>
-    <p>${esc(claim.statement)}</p>
-    <div><small>${confidenceLine(claim.confidence)} Main limitation: ${esc(claim.confidence.main_uncertainty)}</small><button type="button" data-ai-review-claim="${esc(claim.claim_id)}">Review claim</button></div>
-  </article>`;
+  return `<div class="ai-inline-claim" data-ai-inline-claim="${esc(claim.claim_id)}">
+    <span>${esc(stateLabel(claim))} added to the working set</span>
+    <button type="button" data-ai-review-claim="${esc(claim.claim_id)}">Review</button>
+  </div>`;
 }
 
 function messageView(message, thread) {
@@ -115,7 +129,7 @@ function messageView(message, thread) {
 function threadRail(workspace) {
   return `<aside class="ai-thread-rail" aria-label="Patient AI conversations">
     <button type="button" class="ai-new-thread" data-ai-new-thread>New conversation</button>
-    <nav>${workspace.threads.map((thread) => `<button type="button" data-ai-thread="${esc(thread.threadId)}" class="${thread.threadId === workspace.activeThreadId ? 'on' : ''}" aria-current="${thread.threadId === workspace.activeThreadId ? 'true' : 'false'}"><strong>${esc(thread.title)}</strong><span>${esc(formatActivity(thread.lastActivity))}</span></button>`).join('')}</nav>
+    <nav>${workspace.threads.map((thread) => `<button type="button" data-ai-thread="${esc(thread.threadId)}" class="${thread.threadId === workspace.activeThreadId ? 'on' : ''}" aria-current="${thread.threadId === workspace.activeThreadId ? 'true' : 'false'}"><strong>${esc(thread.messages?.length ? thread.title : 'Untitled thread')}</strong><span>${esc(formatActivity(thread.lastActivity))}</span></button>`).join('')}</nav>
   </aside>`;
 }
 
@@ -129,16 +143,17 @@ function emptyThread() {
   ];
   return `<section class="ai-empty">
     <h2>Start a case conference</h2>
-    <p>Ask a focused question or run a physician-invoked initial review. Opening this tab does not create an assessment.</p>
+    <p>Ask a focused question. No claim enters the Care Plan until you adopt it.</p>
     <div>${starters.map(([id, label]) => `<button type="button" data-ai-starter="${id}" data-ai-question="${esc(label)}">${esc(label)}</button>`).join('')}</div>
   </section>`;
 }
 
 function contextStatus(workspace) {
   const context = workspace.contextStatus ?? {};
+  const domains = array(context.domains);
   return `<section class="ai-context-status" aria-label="Context status">
-    <div><strong>Context status</strong><span>${esc(workspace.patientDisplayName)}</span></div>
-    <div><span>Snapshot ${esc(context.snapshot ?? 'Not emitted')}</span><span>${esc(array(context.domains).join(', ') || 'No domains emitted')}</span><span>${esc(context.missingCount ?? 'Not emitted')} missing or stale</span></div>
+    <div><strong>Context loaded</strong><span>Snapshot ${esc(context.snapshot ?? 'Not emitted')}</span></div>
+    <div><span>${domains.length} source domains</span><span>${esc(context.missingCount ?? 'Not emitted')} missing or stale</span></div>
     <details><summary>Provenance</summary><dl><div><dt>Packet hash</dt><dd>${esc(workspace.packetHash)}</dd></div><div><dt>Packet version</dt><dd>${esc(workspace.packetVersion)}</dd></div></dl></details>
   </section>`;
 }
@@ -156,19 +171,18 @@ function consultationControls(claim) {
 }
 
 function adoptionControls(workspace, claim, consultations) {
-  if (claim.state === 'adopted') return `<section class="ai-draft-actions"><h3>Draft from adopted conclusion</h3>
-    <button type="button" data-ai-draft="note_section" data-ai-claim="${esc(claim.claim_id)}">Draft note section</button>
-    <button type="button" data-ai-draft="recommendation" data-ai-claim="${esc(claim.claim_id)}">Draft recommendation</button>
-    <button type="button" data-ai-draft="problem_proposal" data-ai-claim="${esc(claim.claim_id)}">Draft problem proposal</button>
-    <button type="button" data-ai-draft="order_intent" data-ai-claim="${esc(claim.claim_id)}">Draft order intent</button>
-    <small>Drafts remain editable and cannot execute, transmit, sign, send, commit, or enter the chart.</small>
-  </section>`;
+  if (claim.state === 'adopted') {
+    const proposal = array(workspace.activeThread?.drafts).find((draft) => draft.draft_type === 'care_plan_bundle' && array(draft.adopted_claim_ids).includes(claim.claim_id));
+    return proposal
+      ? `<section class="ai-draft-actions"><h3 tabindex="-1">${proposal.promotion_state === 'promoted' ? 'Added to Care Plan draft' : 'Complete Care Plan proposal ready'}</h3><small>Review the structured bundle in the conversation before promotion.</small></section>`
+      : `<section class="ai-draft-actions"><h3 tabindex="-1">Care Plan proposal not created</h3><small>The conclusion remains adopted. Retry structured proposal generation without adopting it again.</small><button type="button" class="secondary" data-ai-retry-care-plan-proposal="${esc(claim.claim_id)}">Retry proposal</button></section>`;
+  }
   if (claim.state === 'dismissed') return '<p class="ai-ledger-boundary">Dismissed claims cannot be adopted or used for drafting.</p>';
   if (workspace.adoptionPendingClaimId === claim.claim_id) {
     const contradictions = array(claim.contradictory_patient_facts);
     const considered = array(consultations).filter((consultation) => consultation.target_claim_id === claim.claim_id);
     return `<section class="ai-adoption-confirmation">
-    <h3>Confirm this exact claim</h3>
+    <h3 tabindex="-1">Confirm this exact claim</h3>
     <blockquote>${esc(claim.statement)}</blockquote>
     <div class="ai-adoption-review">
       <p><strong>Current confidence</strong><span>${confidenceLine(claim.confidence)}</span></p>
@@ -186,9 +200,12 @@ function claimLedger(workspace, thread) {
   const claims = array(thread?.claims);
   const selected = claims.find((claim) => claim.claim_id === workspace.selectedClaimId) ?? claims[0] ?? null;
   const claimList = claims.map((claim) => `<button type="button" data-ai-ledger-claim="${esc(claim.claim_id)}" class="${claim.claim_id === selected?.claim_id ? 'on' : ''}" aria-pressed="${claim.claim_id === selected?.claim_id}"><span>${esc(stateLabel(claim))}</span><strong>${esc(claim.statement)}</strong></button>`).join('');
+  const confirming = selected && workspace.adoptionPendingClaimId === selected.claim_id;
+  const decisionControls = selected ? adoptionControls(workspace, selected, thread.consultations) : '';
   const detail = selected ? `<div class="ai-ledger-detail">
       <header><span>${esc(stateLabel(selected))}</span><strong>${esc(selected.statement)}</strong></header>
       <p class="ai-confidence"><strong>${confidenceLine(selected.confidence)}</strong><span>Main limitation: ${esc(selected.confidence.main_uncertainty)}</span></p>
+      ${confirming || selected.state === 'adopted' ? decisionControls : ''}
       <details><summary>Basis, alternatives, and provenance</summary>
         <p>${esc(selected.confidence.basis)}</p>
         ${factsList('Supporting patient facts', selected.supporting_patient_facts)}
@@ -199,11 +216,11 @@ function claimLedger(workspace, thread) {
         ${factsList('What would lower confidence', selected.confidence_lowerers)}
         ${factsList('Patient-data provenance', selected.patient_source_refs, 'ai-source-ref')}
       </details>
-      ${selected.state !== 'dismissed' ? consultationControls(selected) : ''}
-      ${adoptionControls(workspace, selected, thread.consultations)}
-    </div>` : '<p class="ai-ledger-empty">No material claims yet. Conversation remains exploratory until the AI emits a validated claim.</p>';
+      ${selected.state !== 'dismissed' && !confirming ? consultationControls(selected) : ''}
+      ${!confirming && selected.state !== 'adopted' ? decisionControls : ''}
+    </div>` : '<p class="ai-ledger-empty">No material claims yet.</p>';
   return `<aside class="ai-claim-ledger" data-ai-claim-ledger aria-label="Working claim ledger">
-    <header><div><h2>Working claims</h2><span>${claims.length} in this thread</span></div><p>Review, challenge, and adopt here. Transcript prose does not become chart truth.</p></header>
+    <header><div><h2>Working claims</h2><span>${claims.length} in this thread</span></div><p>Adoption enables drafting. No chart write occurs.</p></header>
     ${claims.length > 1 ? `<nav>${claimList}</nav>` : ''}
     ${detail}
   </aside>`;
@@ -227,7 +244,7 @@ export function aiColleagueView(workspace) {
       ? '<div class="ai-fixture-banner">Backend-owned physician AI thread · synthetic fixture provider</div>'
       : '';
   return `<header class="screen-head ai-screen-head"><div><h1>Aleron AI</h1><p>Patient-specific clinical thought partner.</p></div></header>
-    ${workspace.fixtureMode ? `<div class="ai-fixture-banner">Illustrative fixture responses, not model generated</div>` : ''}
+    ${workspace.fixtureMode ? `<div class="ai-fixture-banner">Illustrative fixture · not model generated</div>` : ''}
     ${providerLabel}
     <section class="ai-workspace">
       ${threadRail(workspace)}

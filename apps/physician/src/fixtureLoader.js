@@ -8,6 +8,23 @@ export async function loadFixtureBundle() {
   return response.json();
 }
 
+export function selectFixtureBundle(bundle, patientId = null) {
+  const cases = Array.isArray(bundle?.cases) ? bundle.cases : [bundle?.case].filter(Boolean);
+  const selectedCase = patientId
+    ? cases.find((candidate) => (candidate?.patient_packet?.patient_id ?? candidate?.patient_id) === patientId)
+    : bundle?.case ?? cases[0];
+  if (!selectedCase) throw new Error(`Physician fixture case not emitted for patient: ${patientId ?? 'unknown'}`);
+  const selectedPatientId = selectedCase?.patient_packet?.patient_id ?? selectedCase?.patient_id;
+  const selected = {
+    ...bundle,
+    queue: (bundle?.queue ?? []).filter((item) => cases.some((candidate) => (candidate?.patient_packet?.patient_id ?? candidate?.patient_id) === item.patient_id)),
+    case: selectedCase,
+    selected_patient_id: selectedPatientId
+  };
+  assertFixtureBundle(selected);
+  return selected;
+}
+
 export function assertFixtureBundle(bundle) {
   const selectedCase = bundle?.case;
   const missing = [];

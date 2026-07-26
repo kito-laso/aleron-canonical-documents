@@ -1,10 +1,12 @@
-import { assertFixtureBundle, loadFixtureBundle } from './fixtureLoader.js?v=physician-ai-runtime-v1';
-import { PHYSICIAN_RUNTIME_CONFIG } from './runtimeConfig.js?v=physician-ai-runtime-v1';
-import { createPhysicianAIBackendClient } from './aiColleagueBackend.js?v=physician-ai-runtime-v1';
+import { assertFixtureBundle, loadFixtureBundle, selectFixtureBundle } from './fixtureLoader.js?v=physician-ai-care-plan-v4';
+import { PHYSICIAN_RUNTIME_CONFIG } from './runtimeConfig.js?v=physician-ai-care-plan-v4';
+import { createPhysicianAIBackendClient } from './aiColleagueBackend.js?v=physician-ai-care-plan-v4';
+import { createCarePlanBackendClient } from './carePlanBackend.js?v=physician-ai-care-plan-v4';
 
 let fixtureCache;
 let backendCache;
 let physicianAIClientCache;
+let carePlanClientCache;
 
 function isLoopbackHostname(hostname) {
   const normalized = String(hostname ?? '').toLowerCase().replace(/^\[|\]$/g, '');
@@ -86,6 +88,15 @@ export function getPhysicianAIBackendClient() {
   return physicianAIClientCache.client;
 }
 
+export function getCarePlanBackendClient() {
+  const baseURL = backendBaseURL();
+  if (!baseURL) throw new Error('Care Plan backend client is unavailable in explicit fixture mode.');
+  if (!carePlanClientCache || carePlanClientCache.baseURL !== baseURL) {
+    carePlanClientCache = { baseURL, client: createCarePlanBackendClient({ baseURL }) };
+  }
+  return carePlanClientCache.client;
+}
+
 async function loadBackendBundle(baseURL, patientId = null) {
   const cacheKey = `${baseURL}|${patientId ?? 'active'}`;
   if (backendCache?.cacheKey === cacheKey) return backendCache.bundle;
@@ -100,19 +111,19 @@ async function loadBackendBundle(baseURL, patientId = null) {
   return bundle;
 }
 
-export async function getPhysicianFixture() {
+export async function getPhysicianFixture(patientId = null) {
   if (!fixtureCache) {
     fixtureCache = await loadFixtureBundle();
     fixtureCache.source = 'fixture';
     assertFixtureBundle(fixtureCache);
   }
-  return fixtureCache;
+  return selectFixtureBundle(fixtureCache, patientId);
 }
 
 export async function getPhysicianBundle(patientId = null) {
   const baseURL = backendBaseURL();
   if (baseURL) return loadBackendBundle(baseURL, patientId);
-  return getPhysicianFixture();
+  return getPhysicianFixture(patientId);
 }
 
 export async function getQueue() {

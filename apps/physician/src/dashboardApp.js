@@ -1,10 +1,11 @@
-import { displayValue } from './dashboardAdapter.js?v=physician-ai-runtime-v1';
-import { formatTrendLine } from './wearableSummary.js?v=physician-ai-runtime-v1';
-import { getOverrideTaxonomy } from './apiClient.js?v=physician-ai-runtime-v1';
-import { recommendationTraceHTML, releasePreviewHTML } from './clinicalTrace.js?v=physician-ai-runtime-v1';
-import { riskSpaceView } from './riskSpaceView.js?v=physician-ai-runtime-v1';
-import { screeningView } from './screeningView.js?v=physician-ai-runtime-v1';
-import { aiColleagueView } from './aiColleagueView.js?v=physician-ai-runtime-v1';
+import { displayValue } from './dashboardAdapter.js?v=physician-ai-care-plan-v4';
+import { formatTrendLine } from './wearableSummary.js?v=physician-ai-care-plan-v4';
+import { getOverrideTaxonomy } from './apiClient.js?v=physician-ai-care-plan-v4';
+import { recommendationTraceHTML, releasePreviewHTML } from './clinicalTrace.js?v=physician-ai-care-plan-v4';
+import { riskSpaceView } from './riskSpaceView.js?v=physician-ai-care-plan-v4';
+import { screeningView } from './screeningView.js?v=physician-ai-care-plan-v4';
+import { aiColleagueView } from './aiColleagueView.js?v=physician-ai-care-plan-v4';
+import { syntheticCarePlanView } from './carePlanView.js?v=physician-ai-care-plan-v4';
 
 // Vitality is out of scope for V1 (Jason, 2026-07-24). The tab is removed from
 // navigation so the surface is unreachable; vitalityView() and its adapter path
@@ -935,7 +936,16 @@ function activeView(model, state) {
   if (state.activeTab === 'screening') return screeningView(state);
   // 'vitality' is deliberately unrouted for V1; a stale persisted tab value falls
   // through to patient data rather than rendering an unreachable surface.
-  if (state.activeTab === 'care-plan') return carePlanView(model, state);
+  if (state.activeTab === 'care-plan') {
+    const noteAvailable = state.source === 'fixture' || model.analysis.readyForReview;
+    if (!noteAvailable || !state.carePlanState) return carePlanView(model, state);
+    const mode = state.carePlanMode === 'note' ? 'note' : 'plan';
+    const switcher = `<nav class="cp-mode-switch" aria-label="Care plan workspace" role="tablist"><button type="button" role="tab" aria-selected="${mode === 'plan'}" class="${mode === 'plan' ? 'on' : ''}" data-care-plan-mode="plan">Plan review</button><button type="button" role="tab" aria-selected="${mode === 'note'}" class="${mode === 'note' ? 'on' : ''}" data-care-plan-mode="note">Draft note</button></nav>`;
+    const view = mode === 'note'
+      ? syntheticCarePlanView({ ...state.carePlanState, ui_error: state.carePlanError, ui_lock_confirmation_pending: state.carePlanLockConfirmationPending, ui_pending_edit_mode: state.carePlanPendingEditMode })
+      : carePlanView(model, state);
+    return `${switcher}${view}`;
+  }
   if (state.activeTab === 'journal') return journalView(model);
   if (state.activeTab === 'aleron-ai') return aiView(state);
   return patientDataView(model);
