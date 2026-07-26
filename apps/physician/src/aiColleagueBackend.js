@@ -258,6 +258,7 @@ function adaptThread(thread, localDraftEdits) {
       information_boundary: informationBoundaryText(consultation.information_boundary)
     })),
     drafts: copy.drafts.map((draft) => {
+      if (draft.draft_type === 'care_plan_bundle') return draft;
       const local = localDraftEdits?.get(draftEditKey(copy.patient_id, copy.thread_id, draft.draft_id));
       return local ? { ...draft, backend_source_content: draft.content, content: local.content, physician_edit_state: 'local_uncommitted', locally_edited_at: local.editedAt } : { ...draft, backend_source_content: draft.content };
     })
@@ -309,6 +310,7 @@ export function applyLocalDraftEdit(inputWorkspace, draftId, content, localDraft
   const thread = workspace.threads.find((item) => item.threadId === workspace.activeThreadId);
   const draft = thread?.drafts.find((item) => item.draft_id === draftId);
   if (!draft) throw new Error('Draft does not belong to the active backend thread.');
+  if (draft.draft_type === 'care_plan_bundle' || typeof draft.content !== 'string') throw new Error('Only a generic content-based draft can be edited locally.');
   if (draft.execution_state !== 'nonexecuting' || draft.chart_write_performed !== false) throw new Error('Only a nonexecuting, non-chart-writing draft can be edited locally.');
   const editedAt = options.now ?? new Date().toISOString();
   localDraftEdits.set(draftEditKey(workspace.patientId, thread.threadId, draftId), { content: nextContent, editedAt });
