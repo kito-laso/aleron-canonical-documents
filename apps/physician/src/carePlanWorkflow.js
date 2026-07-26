@@ -285,7 +285,7 @@ function actorCanCommit(actor) {
   return actor?.actor_type === 'physician' && actor?.actor_id === PHYSICIAN.actor_id && actor?.authorized === true;
 }
 
-export function createSyntheticCarePlanStore({ storage = globalThis.localStorage ?? null, now = () => new Date().toISOString(), patientId = PATIENT_ID, packetHash = null, empty = false, forceNextConflict = false } = {}) {
+export function createSyntheticCarePlanStore({ storage = globalThis.localStorage ?? null, now = () => new Date().toISOString(), patientId = PATIENT_ID, packetHash = null, empty = false, hydrate = true, forceNextConflict = false } = {}) {
   const fixtureBundle = syntheticCarePlanFixture().bundle;
   const bundle = empty ? emptySyntheticCarePlanBundle(patientId, packetHash) : fixtureBundle;
   const expectedPacketHash = packetHash ?? bundle.patient_context_packet_hash;
@@ -319,7 +319,7 @@ export function createSyntheticCarePlanStore({ storage = globalThis.localStorage
     unknown_outcomes: {}
   });
   let state;
-  const stored = storage?.getItem?.(storageKey);
+  const stored = hydrate ? storage?.getItem?.(storageKey) : null;
   try { state = stored ? JSON.parse(stored) : initialState(); } catch { state = initialState(); }
   if (state.patient_reference !== patientId || state.packet_hash !== expectedPacketHash) state = initialState();
   refreshHashes(state);

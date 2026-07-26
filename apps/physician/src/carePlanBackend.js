@@ -110,6 +110,16 @@ export class CarePlanBackendError extends Error {
   }
 }
 
+export function isExpectedPublicStagingCarePlanDenial(error, locationLike = globalThis.location) {
+  let staging = false;
+  try {
+    staging = new URL(locationLike?.href ?? String(locationLike)).searchParams.get('staging') === '1';
+  } catch {
+    return false;
+  }
+  return staging && error instanceof CarePlanBackendError && (error.status === 401 || error.status === 403);
+}
+
 export function adaptCarePlanBackendState(record, prior = null, expectedPatientReference = null, expectedPacketHash = null) {
   if (!record || typeof record !== 'object' || Array.isArray(record)) throw new Error('Care Plan current route must return an object.');
   const payload = record.payload;

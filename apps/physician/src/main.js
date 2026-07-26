@@ -44,7 +44,7 @@ import {
   createCodexSubscriptionProvider
 } from './aiColleagueProvider.js?v=physician-ai-care-plan-v4';
 import { createSyntheticCarePlanStore } from './carePlanWorkflow.js?v=physician-ai-care-plan-v4';
-import { adaptCarePlanBackendState, payloadFromCarePlanState } from './carePlanBackend.js?v=physician-ai-care-plan-v4';
+import { adaptCarePlanBackendState, isExpectedPublicStagingCarePlanDenial, payloadFromCarePlanState } from './carePlanBackend.js?v=physician-ai-care-plan-v4';
 
 const app = document.querySelector('#app');
 const state = {
@@ -455,9 +455,22 @@ async function adoptCase(caseBundle) {
     nextCarePlanState = nextCarePlanStore.getState();
   } else {
     nextCarePlanClient = getCarePlanBackendClient();
-    const current = await nextCarePlanClient.current(null, patientId);
-    nextCarePlanState = adaptCarePlanBackendState(current, switchingContext ? null : state.carePlanState, patientId, aiWorkspace.packetHash);
-    nextCarePlanStore = null;
+    try {
+      const current = await nextCarePlanClient.current(null, patientId);
+      nextCarePlanState = adaptCarePlanBackendState(current, switchingContext ? null : state.carePlanState, patientId, aiWorkspace.packetHash);
+      nextCarePlanStore = null;
+    } catch (error) {
+      if (!isExpectedPublicStagingCarePlanDenial(error, window.location)) throw error;
+      nextCarePlanStore = createSyntheticCarePlanStore({
+        storage: window.localStorage,
+        patientId: aiWorkspace.patientId,
+        packetHash: aiWorkspace.packetHash,
+        empty: true,
+        hydrate: false
+      });
+      nextCarePlanClient = null;
+      nextCarePlanState = nextCarePlanStore.getState();
+    }
   }
   if (switchingContext) resetCarePlanSession();
   state.activeCase = caseBundle;
