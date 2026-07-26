@@ -44,7 +44,7 @@ import {
   createCodexSubscriptionProvider
 } from './aiColleagueProvider.js?v=physician-ai-care-plan-v4';
 import { createSyntheticCarePlanStore } from './carePlanWorkflow.js?v=physician-ai-care-plan-v4';
-import { adaptCarePlanBackendState, isExpectedPublicStagingCarePlanDenial, payloadFromCarePlanState } from './carePlanBackend.js?v=physician-ai-care-plan-v4';
+import { adaptCarePlanBackendState, isPublicStagingLocation, payloadFromCarePlanState } from './carePlanBackend.js?v=physician-ai-care-plan-v4';
 
 const app = document.querySelector('#app');
 const state = {
@@ -453,24 +453,21 @@ async function adoptCase(caseBundle) {
     }
     nextCarePlanClient = null;
     nextCarePlanState = nextCarePlanStore.getState();
+  } else if (isPublicStagingLocation(window.location)) {
+    nextCarePlanStore = createSyntheticCarePlanStore({
+      storage: window.localStorage,
+      patientId: aiWorkspace.patientId,
+      packetHash: aiWorkspace.packetHash,
+      empty: true,
+      hydrate: false
+    });
+    nextCarePlanClient = null;
+    nextCarePlanState = nextCarePlanStore.getState();
   } else {
     nextCarePlanClient = getCarePlanBackendClient();
-    try {
-      const current = await nextCarePlanClient.current(null, patientId);
-      nextCarePlanState = adaptCarePlanBackendState(current, switchingContext ? null : state.carePlanState, patientId, aiWorkspace.packetHash);
-      nextCarePlanStore = null;
-    } catch (error) {
-      if (!isExpectedPublicStagingCarePlanDenial(error, window.location)) throw error;
-      nextCarePlanStore = createSyntheticCarePlanStore({
-        storage: window.localStorage,
-        patientId: aiWorkspace.patientId,
-        packetHash: aiWorkspace.packetHash,
-        empty: true,
-        hydrate: false
-      });
-      nextCarePlanClient = null;
-      nextCarePlanState = nextCarePlanStore.getState();
-    }
+    const current = await nextCarePlanClient.current(null, patientId);
+    nextCarePlanState = adaptCarePlanBackendState(current, switchingContext ? null : state.carePlanState, patientId, aiWorkspace.packetHash);
+    nextCarePlanStore = null;
   }
   if (switchingContext) resetCarePlanSession();
   state.activeCase = caseBundle;

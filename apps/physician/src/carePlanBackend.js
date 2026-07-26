@@ -110,14 +110,20 @@ export class CarePlanBackendError extends Error {
   }
 }
 
-export function isExpectedPublicStagingCarePlanDenial(error, locationLike = globalThis.location) {
-  let staging = false;
+export function isPublicStagingLocation(locationLike = globalThis.location) {
   try {
-    staging = new URL(locationLike?.href ?? String(locationLike)).searchParams.get('staging') === '1';
+    const url = new URL(locationLike?.href ?? String(locationLike));
+    return url.protocol === 'https:'
+      && url.host === 'yimjason01-blip.github.io'
+      && url.pathname.startsWith('/aleron-canonical-documents/apps/physician/')
+      && url.searchParams.get('staging') === '1';
   } catch {
     return false;
   }
-  return staging && error instanceof CarePlanBackendError && (error.status === 401 || error.status === 403);
+}
+
+export function isExpectedPublicStagingCarePlanDenial(error, locationLike = globalThis.location) {
+  return isPublicStagingLocation(locationLike) && error instanceof CarePlanBackendError && (error.status === 401 || error.status === 403);
 }
 
 export function adaptCarePlanBackendState(record, prior = null, expectedPatientReference = null, expectedPacketHash = null) {
