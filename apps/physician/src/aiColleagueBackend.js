@@ -138,7 +138,7 @@ function validateConsultation(consultation, thread, claimById, consultationById)
   if (!targetClaim) throw new Error('physician AI consultation target claim does not resolve.');
   nonEmpty(consultation.target_statement, 'consultation.target_statement');
   if (consultation.target_statement !== targetClaim.statement) throw new Error('physician AI consultation target statement does not match its linked claim.');
-  if (consultation.proposed_revision !== null && (typeof consultation.proposed_revision !== 'string' || !consultation.proposed_revision)) throw new Error('physician AI consultation proposed revision is invalid.');
+  if (consultation.proposed_revision !== undefined && consultation.proposed_revision !== null && (typeof consultation.proposed_revision !== 'string' || !consultation.proposed_revision)) throw new Error('physician AI consultation proposed revision is invalid.');
   if (!CONSULTATION_TYPES.has(consultation.consultation_type)) throw new Error('physician AI consultation type is incompatible.');
   if (consultation.specialty !== null && !SPECIALTIES.has(consultation.specialty)) throw new Error('physician AI consultation specialty is incompatible.');
   if (consultation.consultation_type === 'specialist' && !consultation.specialty) throw new Error('specialist AI consultation requires a specialty.');

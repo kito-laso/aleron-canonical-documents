@@ -4,7 +4,7 @@ import {
   currentArtifactLineage,
   derivedReleaseIdentity,
   releasePreviewAliasesAreConsistent
-} from './dashboardAdapter.js?v=physician-ai-care-plan-v8';
+} from './dashboardAdapter.js?v=physician-ai-care-plan-v9';
 
 const SCHEMA_VERSION = 'physician_review_release_session.v1';
 const STORAGE_PREFIX = 'aleron-review-release-session:';

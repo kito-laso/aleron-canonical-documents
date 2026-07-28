@@ -12,8 +12,8 @@ import {
   requestPhysicianAuthorization,
   requestReleasePreview,
   startPhysicianReview
-} from './apiClient.js?v=physician-ai-care-plan-v8';
-import { adaptBackendThreadWorkspace, applyLocalDraftEdit } from './aiColleagueBackend.js?v=physician-ai-care-plan-v8';
+} from './apiClient.js?v=physician-ai-care-plan-v9';
+import { adaptBackendThreadWorkspace, applyLocalDraftEdit } from './aiColleagueBackend.js?v=physician-ai-care-plan-v9';
 import {
   adaptPhysicianCase,
   artifactBindsCurrentLineage,
@@ -25,8 +25,8 @@ import {
   releaseIdentifier,
   releasePackageMatchesAuthorizationEvidence,
   releasePreviewAliasesAreConsistent
-} from './dashboardAdapter.js?v=physician-ai-care-plan-v8';
-import { decisionReasonOptionsHTML, renderDashboard, renderEmptyStaging, renderFatalError } from './dashboardApp.js?v=physician-ai-care-plan-v8';
+} from './dashboardAdapter.js?v=physician-ai-care-plan-v9';
+import { decisionReasonOptionsHTML, renderDashboard, renderEmptyStaging, renderFatalError } from './dashboardApp.js?v=physician-ai-care-plan-v9';
 import {
   acceptConsultationRevision,
   adoptClaim,
@@ -49,16 +49,16 @@ import {
   sendFixtureMessage,
   startNewThread,
   updateDraftContent
-} from './aiColleague.js?v=physician-ai-care-plan-v8';
+} from './aiColleague.js?v=physician-ai-care-plan-v9';
 import {
   buildConsultationFollowUpQuestion,
   buildCodexProviderRequest,
   codexModeFromLocation,
   createCodexSubscriptionProvider
-} from './aiColleagueProvider.js?v=physician-ai-care-plan-v8';
-import { createSyntheticCarePlanStore } from './carePlanWorkflow.js?v=physician-ai-care-plan-v8';
-import { adaptCarePlanBackendState, isPublicStagingLocation, payloadFromCarePlanState, usesLocalCarePlanStore } from './carePlanBackend.js?v=physician-ai-care-plan-v8';
-import { createReviewReleaseSessionRepository } from './reviewReleaseSession.js?v=physician-ai-care-plan-v8';
+} from './aiColleagueProvider.js?v=physician-ai-care-plan-v9';
+import { createSyntheticCarePlanStore } from './carePlanWorkflow.js?v=physician-ai-care-plan-v9';
+import { adaptCarePlanBackendState, isPublicStagingLocation, payloadFromCarePlanState, usesLocalCarePlanStore } from './carePlanBackend.js?v=physician-ai-care-plan-v9';
+import { createReviewReleaseSessionRepository } from './reviewReleaseSession.js?v=physician-ai-care-plan-v9';
 
 const app = document.querySelector('#app');
 const state = {
