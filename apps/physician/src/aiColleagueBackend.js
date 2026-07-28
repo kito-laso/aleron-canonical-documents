@@ -123,7 +123,7 @@ function validateProviderPatientContext(context, label) {
   array(context.source_facts, `${label}.source_facts`).forEach((fact, index) => validateSourceFact(fact, `${label}.source_facts[${index}]`));
 }
 
-function validateConsultation(consultation, thread, claimIds, consultationById) {
+function validateConsultation(consultation, thread, claimById, consultationById) {
   onlyKeys(consultation, [
     'consultation_id', 'thread_id', 'patient_id', 'target_claim_id', 'target_statement', 'consultation_type', 'specialty', 'blinded_to_primary_answer',
     'context_packet_hash', 'input_question', 'position', 'confidence', 'supporting_patient_facts', 'contradictory_patient_facts',
@@ -134,8 +134,10 @@ function validateConsultation(consultation, thread, claimIds, consultationById) 
   ], 'physician AI consultation');
   nonEmpty(consultation.consultation_id, 'consultation.consultation_id');
   if (consultation.thread_id !== thread.thread_id || consultation.patient_id !== thread.patient_id || consultation.context_packet_hash !== thread.context.packet_hash) throw new Error('physician AI consultation lineage does not match the thread patient and packet.');
-  if (!claimIds.has(consultation.target_claim_id)) throw new Error('physician AI consultation target claim does not resolve.');
+  const targetClaim = claimById.get(consultation.target_claim_id);
+  if (!targetClaim) throw new Error('physician AI consultation target claim does not resolve.');
   nonEmpty(consultation.target_statement, 'consultation.target_statement');
+  if (consultation.target_statement !== targetClaim.statement) throw new Error('physician AI consultation target statement does not match its linked claim.');
   if (consultation.proposed_revision !== null && (typeof consultation.proposed_revision !== 'string' || !consultation.proposed_revision)) throw new Error('physician AI consultation proposed revision is invalid.');
   if (!CONSULTATION_TYPES.has(consultation.consultation_type)) throw new Error('physician AI consultation type is incompatible.');
   if (consultation.specialty !== null && !SPECIALTIES.has(consultation.specialty)) throw new Error('physician AI consultation specialty is incompatible.');
@@ -235,7 +237,7 @@ export function validateBackendThread(threadValue, expectedPatientId, expectedPa
   const consultations = array(thread.consultations, 'thread.consultations');
   const consultationById = new Map(consultations.map((item) => [item.consultation_id, item]));
   if (consultationById.size !== consultations.length) throw new Error('Backend physician AI thread contains duplicate consultation IDs.');
-  consultations.forEach((item) => validateConsultation(item, thread, new Set(claimById.keys()), consultationById));
+  consultations.forEach((item) => validateConsultation(item, thread, claimById, consultationById));
   const drafts = array(thread.drafts, 'thread.drafts');
   drafts.forEach((item) => validateDraft(item, thread, claimById, messageIds));
   if (new Set(drafts.map((item) => item.draft_id)).size !== drafts.length) throw new Error('Backend physician AI thread contains duplicate draft IDs.');
@@ -303,7 +305,16 @@ export function adaptBackendThreadWorkspace(caseBundle, backendThreads, activeTh
   const selectedPacketHash = caseBundle?.patient_packet?.packet_hash ?? caseBundle?.engine_run?.patient_packet_hash ?? caseBundle?.action_map_state?.patient_packet_hash;
   nonEmpty(selectedPatientId, 'selected patient ID');
   nonEmpty(selectedPacketHash, 'selected patient packet hash');
-  const aggregates = array(backendThreads, 'backend physician AI threads');
+  const aggregates = clone(array(backendThreads, 'backend physician AI threads'));
+  for (const thread of aggregates) {
+    const claimById = new Map(array(thread?.claims, 'thread.claims').map((item) => [item?.claim_id, item]));
+    for (const consultation of array(thread?.consultations, 'thread.consultations')) {
+      if (Object.hasOwn(consultation, 'target_statement')) continue;
+      const targetClaim = claimById.get(consultation?.target_claim_id);
+      if (!targetClaim) throw new Error('physician AI consultation target claim does not resolve.');
+      consultation.target_statement = nonEmpty(targetClaim.statement, 'claim.statement');
+    }
+  }
   aggregates.forEach((thread) => validateBackendThread(thread, selectedPatientId, selectedPacketHash));
   const selected = aggregates.find((thread) => thread.thread_id === activeThreadId) ?? aggregates[0] ?? null;
   const threads = aggregates.map((thread) => adaptThread(thread, options.localDraftEdits));

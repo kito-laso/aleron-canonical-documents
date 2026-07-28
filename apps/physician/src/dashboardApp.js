@@ -5,14 +5,14 @@ import {
   physicianReleasePackageFamily,
   releasePackageTransitionIsMonotonic,
   releasePreviewAliasesAreConsistent
-} from './dashboardAdapter.js?v=physician-ai-care-plan-v7';
-import { formatTrendLine } from './wearableSummary.js?v=physician-ai-care-plan-v7';
-import { getOverrideTaxonomy } from './apiClient.js?v=physician-ai-care-plan-v7';
-import { recommendationTraceHTML, releasePreviewHTML } from './clinicalTrace.js?v=physician-ai-care-plan-v7';
-import { riskSpaceView } from './riskSpaceView.js?v=physician-ai-care-plan-v7';
-import { screeningView } from './screeningView.js?v=physician-ai-care-plan-v7';
-import { aiColleagueView } from './aiColleagueView.js?v=physician-ai-care-plan-v7';
-import { syntheticCarePlanView } from './carePlanView.js?v=physician-ai-care-plan-v7';
+} from './dashboardAdapter.js?v=physician-ai-care-plan-v8';
+import { formatTrendLine } from './wearableSummary.js?v=physician-ai-care-plan-v8';
+import { getOverrideTaxonomy } from './apiClient.js?v=physician-ai-care-plan-v8';
+import { recommendationTraceHTML, releasePreviewHTML } from './clinicalTrace.js?v=physician-ai-care-plan-v8';
+import { riskSpaceView } from './riskSpaceView.js?v=physician-ai-care-plan-v8';
+import { screeningView } from './screeningView.js?v=physician-ai-care-plan-v8';
+import { aiColleagueView } from './aiColleagueView.js?v=physician-ai-care-plan-v8';
+import { syntheticCarePlanView } from './carePlanView.js?v=physician-ai-care-plan-v8';
 
 // Vitality is out of scope for V1 (Jason, 2026-07-24). The tab is removed from
 // navigation so the surface is unreachable; vitalityView() and its adapter path

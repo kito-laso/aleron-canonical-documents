@@ -6,25 +6,25 @@
     "apps/physician/assets/fonts/PolySans-Median.ttf": "c1a5e1dcf63963a4eeb688ff65e919aaac3ee9f9958b57fee6ca3224df35a74f",
     "apps/physician/assets/fonts/PolySans-Neutral.ttf": "52d272ffe1967e5bfab79353a314044319d5a86b16e90b44e457055a1f119c17",
     "apps/physician/fixtures/physician_synthetic_case.json": "02262c2cb238683ae23e5542b03d1eeeea3aba5949ed5385486cf181feec5e39",
-    "apps/physician/index.html": "acd62dec86596e82dd2bae2611a03be3ef9ece02414c7d2f530d692d46c8494d",
+    "apps/physician/index.html": "b57375cde384164a26a2ca80f2b198931b39f19150ad99c58b2619de0ce5db3d",
     "apps/physician/src/actionSpaceModel.js": "210c7db90c474b7a1278e5895cb5255ae2d91a97659b6b77fa1a8c39a630c47d",
     "apps/physician/src/aiColleague.js": "ca7c58cf550f372d6d572410b5d01d1e52e1dec41e4a0852bd22b0f4c8481a13",
-    "apps/physician/src/aiColleagueBackend.js": "6f6758c53601e9fcc389cca434d0d4fcb61fc94eb1b3564fdb8fff3fbc00529c",
+    "apps/physician/src/aiColleagueBackend.js": "08947150b36ff0bc72bceef5df06f880e326219b15886726b65f327a3b7ff730",
     "apps/physician/src/aiColleagueProvider.js": "dc1480c576d444b4bf879feb0b9f6394fd509f8bcc2eaa55f1f2cad651455945",
     "apps/physician/src/aiColleagueView.js": "3cd5cff1ee1066a2d6a5f0670e4eeaa7b6f269c36a5523df5bc1d09f572caa13",
-    "apps/physician/src/apiClient.js": "c6b1bb93b466ce74f4f6fb67ad53bd4d396f9625acfeecdf058f0e8182c64afa",
+    "apps/physician/src/apiClient.js": "a441b8df0906445cb5a3ff9860cac6f0bcc958ee4dcbb6f4d10fbb470e1e2907",
     "apps/physician/src/canonicalSources.js": "a6db276ff2385687592683c7e8658f03d8b30ac025fc3471a0a9eb4f43473bb2",
     "apps/physician/src/carePlanBackend.js": "651cf301d5c73646966bb81439d7cc7e83dc37ce6d9c0a6b6bd137e9349d01a3",
     "apps/physician/src/carePlanView.js": "785b4934eb5790c5f74a2a4c020db659fd151ae4194b4496c87d467df3adbd88",
     "apps/physician/src/carePlanWorkflow.js": "44c75d8fd842f6aa39c54e0e150aeb86a930fea21b2298daf0863be86ed6428c",
     "apps/physician/src/clinicalTrace.js": "b940c350405e970c097b9df2d0d9490d3eca820179f012f09722d72d8dd1b05e",
     "apps/physician/src/clinicalValueFormat.js": "ea48ae4de285b74f2f9f8c52c0e578a857f62d61d57e21d334b59151f75adadc",
-    "apps/physician/src/dashboardAdapter.js": "4848e34d475e4e31ca683cca6c6a967e2fea6d161acdd7d38cfaeff4af7989e5",
-    "apps/physician/src/dashboardApp.js": "ef62692d46a0ad71abced379499be96948c316c1cb545ea8fb2396b92eca900a",
+    "apps/physician/src/dashboardAdapter.js": "fec692dc3989480def06bebda3c55b6b468238d62bb8348989a248f97c3c2739",
+    "apps/physician/src/dashboardApp.js": "8c5afd7729f2f2df18193dd13e0d6a59ff1243250d8d4f43aa07907200eeb245",
     "apps/physician/src/fixtureLoader.js": "5080fd4fab0c01e90b2ca8c10cf6696982cb1f64b1ddb31f8b19da23d7e56b84",
     "apps/physician/src/journey.css": "fff96372dd2f9d9f4c7547a8c2616f71c5b55b163d9e69b41e80caadbf306e17",
-    "apps/physician/src/main.js": "c35b872fa52b80ceba8e0194919e2e0cd0522155e526287cc124181f2ac1f350",
-    "apps/physician/src/reviewReleaseSession.js": "86ca72bd2033b417bbaa228fe4d876176b5bbb4a2eee72466175ef4ff3c7a40b",
+    "apps/physician/src/main.js": "4459cdd1be455a2aa3cc9de428f81c3953d1d7bdc75c396a42d05dd15d28244a",
+    "apps/physician/src/reviewReleaseSession.js": "15196bc9fca75ae6ee629c3ffb4f0d658a29c10fbc98e5d0b3aa7944501d5a96",
     "apps/physician/src/riskActionLibrary.js": "3d1c21a3252ce735916291006970dacd436daf0ba8e45bfc46884445173d2416",
     "apps/physician/src/riskDomainTiers.js": "7b852deaea766611a46bc9547a6eefd25b4bdf7bfce2707830df8d2ef26c2287",
     "apps/physician/src/riskSpaceView.js": "1eedcdfa30a745c67e36e803f8f56bf83c4ce0737e090c9281d6d544c1178605",
@@ -33,7 +33,7 @@
     "apps/physician/src/styles.css": "03d0b4fbb6aa7f5601bce22a54645adf3fe41544d316b93fc52f8336908a6f49",
     "apps/physician/src/wearableSummary.js": "af373c4b1be651f996826ced034619748f0034bbf9f6e8a932f9e111a42c710b"
   },
-  "physician_tree_sha256": "eab2f55fb4e3e80de62c4946f0f09cc26cd354232a8ab5d72a03983087367e37",
+  "physician_tree_sha256": "b20a96d94784cb59dd6cc16bc0af48d7f7dc2bb2503f7f2896562eec0725d363",
   "preserve_top_level": [
     "apps",
     "archive",
@@ -51,6 +51,6 @@
   "source_documents": {
     "engine/system-design/diagrams/aleron-repo-architecture.html": "ecaad647243e89bb942e2c86062804bff25fe9b99ad74af9c44c0f75e4982b86"
   },
-  "source_git_tree": "ecfe795ce3dfaefc162124ce1576572bbe2d5706",
-  "source_sha": "260b0be99844bdc39bbd3e11a7f53d7a600d3be8"
+  "source_git_tree": "a06f3beee09af8aea4ae24f40128d2d27fe057dd",
+  "source_sha": "97bfe9291709761226841c21f52e03f717d658e9"
 }
