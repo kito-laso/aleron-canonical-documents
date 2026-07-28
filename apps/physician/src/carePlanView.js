@@ -62,10 +62,11 @@ function orderCard(order, locked) {
   </article>`;
 }
 
-function problemEntry(entry, index, locked) {
+function problemEntry(entry, index, locked, highlightedEntryId = null) {
   const problem = entry.problem;
   const noOrders = entry.order_intents.length === 0;
-  return `<article class="cp-problem" data-care-plan-entry="${esc(entry.entry_id)}">
+  const highlighted = entry.entry_id === highlightedEntryId;
+  return `<article class="cp-problem${highlighted ? ' cp-problem-highlighted' : ''}" data-care-plan-entry="${esc(entry.entry_id)}"${highlighted ? ' data-new-care-plan-item="true"' : ''}>
     <header class="cp-entry-head"><span>${String(index + 1).padStart(2, '0')}</span><div><h3>Problem</h3><p>${esc(problem.proposed_label.value)}</p></div><label>Entry<select data-care-plan-entry-inclusion="${esc(entry.entry_id)}" ${locked ? 'disabled' : ''}><option value="included"${selected('included', problem.entry_inclusion)}>Included</option><option value="removed"${selected('removed', problem.entry_inclusion)}>Removed</option></select></label></header>
     ${fieldMeta(problem.proposed_label)}
     <div class="cp-problem-controls">
@@ -122,7 +123,7 @@ function pendingOrderActions(state) {
   const orderPicker = `<label>Order<select data-care-plan-pending-order>${active.map((order) => `<option value="${esc(order.order_intent_id)}">${esc(order.display_name)}</option>`).join('')}</select></label>`;
   const actionBody = state.ui_pending_edit_mode
     ? `${orderPicker}<label>Revised timing<input data-care-plan-pending-timing value="Within 7 days"></label><div class="cp-pending-controls"><button type="button" class="secondary" data-care-plan-pending-cancel-edit>Cancel revision</button><button type="button" data-care-plan-pending-revise ${active.length ? '' : 'disabled'}>Apply revision</button></div>`
-    : `${orderPicker}<label class="cp-attestation"><input type="checkbox" data-care-plan-pending-attestation> I reviewed this exact pending simulation order set.</label><div class="cp-pending-controls"><button type="button" data-care-plan-pending-authorize ${active.length ? '' : 'disabled'}>Authorize current set</button><button type="button" class="secondary" data-care-plan-pending-begin-revise ${active.length ? '' : 'disabled'}>Revise selected order</button><button type="button" class="secondary" data-care-plan-pending-cancel ${active.length ? '' : 'disabled'}>Cancel selected order</button><button type="button" class="secondary" data-care-plan-pending-leave>Leave pending</button></div>`;
+    : `${orderPicker}<div class="cp-pending-controls"><button type="button" class="secondary" data-care-plan-pending-begin-revise ${active.length ? '' : 'disabled'}>Revise selected order</button><button type="button" class="secondary" data-care-plan-pending-cancel ${active.length ? '' : 'disabled'}>Cancel selected order</button><button type="button" class="secondary" data-care-plan-pending-leave>Leave pending</button></div>`;
   return `<section class="cp-pending-actions" aria-label="Pending order set actions">
     ${pendingTransitionOutcome(state)}
     <div class="cp-section-head"><div><span>Post-lock workflow</span><h2>Pending order set</h2><p>Revision ${esc(pending.snapshot_revision)}</p><details><summary>Exact set hash</summary><code>${esc(pending.payload_hash)}</code></details></div><strong>${esc(displayState(pending.status))}</strong></div>
@@ -130,48 +131,44 @@ function pendingOrderActions(state) {
   </section>`;
 }
 
-export function syntheticCarePlanView(state) {
-  if (state.fixture_content_state === 'not_emitted') {
-    return `<div class="cp-workflow" data-care-plan-synthetic-v1><header class="screen-head"><div><h1>Care plan</h1><p>Problem-centered note drafting and separate order authorization.</p></div></header><div class="cp-simulation-banner"><span>Simulation: no order was transmitted and no Canvas record was created.</span></div><section class="cp-note"><div class="cp-note-meta"><div><span>Note</span><h2>${esc(state.encounter_label ?? 'Care Plan not emitted')}</h2></div><strong>Not emitted</strong></div><p class="truth-empty">No Care Plan draft was emitted for this patient fixture. An explicitly adopted AI conclusion may create a new draft.</p></section></div>`;
-  }
+export function syntheticCarePlanView(state, context = {}) {
+  const patientLabel = context.patientDisplayName ? ` · ${esc(context.patientDisplayName)}` : '';
+  if (state.fixture_content_state === 'not_emitted') return `<div class="cp-workflow" data-care-plan-synthetic-v1><header class="screen-head"><div><h1>Care Plan${patientLabel}</h1><p>One problem-centered review workspace.</p></div></header>${context.changeReviewHtml ?? ''}<section class="cp-plan-editor"><h2>Care Plan not emitted</h2><p class="truth-empty">An explicitly adopted AI conclusion may create one compact problem, assessment, plan, and orders proposal.</p></section></div>`;
   const locked = state.note_lock_state.startsWith('locked');
   const conflict = state.persistence_state === 'conflict';
   const editingDisabled = locked || conflict;
-  const includedOrders = state.entries.flatMap((entry) => entry.order_intents).filter((order) => order.inclusion_state === 'included');
+  const includedProblems = state.entries.filter((entry) => entry.problem.entry_inclusion === 'included');
+  const includedOrders = includedProblems.flatMap((entry) => entry.order_intents).filter((order) => order.inclusion_state === 'included');
   const readyOrders = includedOrders.filter((order) => order.validation_state === 'valid' && order.catalog_match_state === 'verified');
+  const blockedOrders = includedOrders.filter((order) => !readyOrders.includes(order));
   const orderAuthorized = state.order_authorization_state === 'authorized_simulated';
   const pendingOrderCount = orderAuthorized ? 0 : includedOrders.filter((order) => !order.authorization_state).length;
-  const includedProblems = state.entries.filter((entry) => entry.problem.entry_inclusion === 'included');
   const activeListAdds = includedProblems.filter((entry) => entry.problem.problem_list_disposition === 'add_to_active_problem_list').length;
   const existingUpdates = includedProblems.filter((entry) => entry.problem.problem_list_disposition === 'update_existing_problem').length;
   const noteOnly = includedProblems.filter((entry) => entry.problem.problem_list_disposition === 'note_only').length;
+  const incompleteProblems = includedProblems.filter((entry) => !String(entry.problem.proposed_label.value ?? '').trim() || !String(entry.assessment.value ?? '').trim() || !String(entry.plan.value ?? '').trim() || !entry.problem.problem_list_disposition);
+  const blockers = [
+    incompleteProblems.length ? `${incompleteProblems.length} problem${incompleteProblems.length === 1 ? '' : 's'} incomplete` : '',
+    blockedOrders.length ? `${blockedOrders.length} order${blockedOrders.length === 1 ? '' : 's'} need review` : '',
+    state.persistence_state !== 'saved' ? 'Current Care Plan changes are not saved' : '',
+    state.narrative_state !== 'current' ? 'Preview note regeneration is pending' : '',
+    conflict ? 'Draft conflict requires reload' : ''
+  ].filter(Boolean);
+  const planReady = blockers.length === 0;
+  const previewProblems = includedProblems.map((entry) => `<article><h3>${esc(entry.problem.proposed_label.value)}</h3><h4>Assessment</h4><p>${esc(entry.assessment.value)}</p><h4>Plan</h4><p>${esc(entry.plan.value)}</p>${entry.order_intents.some((order) => order.inclusion_state === 'included') ? `<h4>Orders</h4><ul>${entry.order_intents.filter((order) => order.inclusion_state === 'included').map((order) => `<li>${esc(order.display_name)} · ${esc(order.timing)}</li>`).join('')}</ul>` : ''}</article>`).join('');
+  const orderControls = orderAuthorized ? `<section class="cp-commit-complete"><strong>Order set authorized in simulation</strong><small>${includedOrders.length} orders · no native orders created</small></section>` : includedOrders.length ? `<details><summary>Exact order-set hash</summary><code>${esc(state.order_set_hash)}</code></details><label class="cp-attestation"><input type="checkbox" data-care-plan-order-attestation> I reviewed the exact enumerated simulation order set.</label><button type="button" data-care-plan-authorize-orders ${readyOrders.length !== includedOrders.length ? 'disabled' : ''}>Authorize exact order set in simulation</button>` : '<section class="cp-commit-complete"><strong>No included orders</strong><small>No order authorization act is required.</small></section>';
+  const lockControls = locked ? `<section class="cp-commit-complete"><strong>Preview note locked in simulation</strong><small>${includedProblems.length} problems · problem-list decisions frozen</small><details><summary>Commitment boundary</summary><small>Order authorization remains a separate physician act.</small></details></section>` : !planReady ? `<section class="cp-readiness-blockers"><strong>Plan not ready to lock</strong><ul>${blockers.map((item) => `<li>${esc(item)}</li>`).join('')}</ul></section>` : state.ui_lock_confirmation_pending ? `<section class="cp-lock-confirmation"><strong>Lock this exact Preview note?</strong><small>${includedProblems.length} problems · ${activeListAdds} active-list add · ${existingUpdates} update · ${noteOnly} note only · orders remain separate</small><div><button type="button" class="secondary" data-care-plan-cancel-lock>Cancel</button><button type="button" data-care-plan-lock-note>Lock exact Preview note in simulation</button></div></section>` : `<label class="cp-attestation"><input type="checkbox" data-care-plan-lock-attestation> I reviewed the exact Preview note and problem-list mutation set.</label>${pendingOrderCount ? `<label class="cp-attestation"><input type="checkbox" data-care-plan-pending-ack> I understand pending orders remain unsent.</label>` : '<small class="cp-commit-status">Orders are authorized separately.</small>'}<button type="button" data-care-plan-begin-lock>Review and lock Preview note</button>`;
   const projectionCount = state.projections.notes_history.length + state.projections.lab_orders.length + state.projections.emr.length;
-  const orderControls = orderAuthorized
-    ? `<section class="cp-commit-complete"><strong>Order set authorized in simulation</strong><small>${includedOrders.length} orders · no native orders created</small><details><summary>Exact committed set</summary><code>${esc(state.order_set_hash)}</code></details></section>`
-    : `<details><summary>Exact order-set hash</summary><code>${esc(state.order_set_hash)}</code></details><label class="cp-attestation"><input type="checkbox" data-care-plan-order-attestation ${editingDisabled ? 'disabled' : ''}> I reviewed the exact enumerated simulation order set.</label><button type="button" data-care-plan-authorize-orders ${editingDisabled || readyOrders.length !== includedOrders.length ? 'disabled' : ''}>Authorize exact set in simulation</button>`;
-  const lockControls = locked
-    ? `<section class="cp-commit-complete"><strong>Note locked in simulation</strong><small>${includedProblems.length} problems · problem-list decisions frozen</small><details><summary>Commitment boundary</summary><small>Pending orders remain a separate workflow.</small></details></section>`
-    : state.ui_lock_confirmation_pending
-      ? `<section class="cp-lock-confirmation"><strong>Lock this exact note?</strong><small>${includedProblems.length} problems · ${activeListAdds} active-list add · ${existingUpdates} update · ${noteOnly} note only · pending orders remain unsent</small><div><button type="button" class="secondary" data-care-plan-cancel-lock>Cancel</button><button type="button" data-care-plan-lock-note ${conflict ? 'disabled' : ''}>Lock exact note in simulation</button></div></section>`
-      : `<label class="cp-attestation"><input type="checkbox" data-care-plan-lock-attestation ${conflict ? 'disabled' : ''}> I reviewed the exact note and problem-list mutation set.</label>${pendingOrderCount ? `<label class="cp-attestation"><input type="checkbox" data-care-plan-pending-ack ${conflict ? 'disabled' : ''}> I understand pending orders remain unsent.</label>` : '<small class="cp-commit-status">Orders authorized separately.</small>'}<button type="button" data-care-plan-begin-lock ${state.persistence_state !== 'saved' || state.narrative_state === 'out_of_date' ? 'disabled' : ''}>Review and lock Aleron note</button>`;
-  const artifactSections = state.receipts.length || projectionCount
-    ? `<section class="cp-receipts"><div class="cp-section-head"><div><h2>Simulation receipts</h2><p>Verified references for this synthetic workflow.</p></div></div>${receipts(state)}</section>${projections(state)}`
-    : '';
+  const artifactSections = state.receipts.length || projectionCount ? `<section class="cp-receipts"><div class="cp-section-head"><div><h2>Workflow receipts</h2><p>Verified references for this synthetic workflow.</p></div></div>${receipts(state)}</section>${projections(state)}` : '';
+  const releaseReady = locked && (orderAuthorized || includedOrders.length === 0);
   return `<div class="cp-workflow" data-care-plan-synthetic-v1>
-    <header class="screen-head"><div><h1>Care plan</h1><p>Problem-centered note drafting and separate order authorization.</p></div><div class="cp-save-state"><strong>${esc(state.persistence_state === 'saved' ? 'Saved' : displayState(state.persistence_state))} · revision ${state.server_revision}</strong><small>${esc(displayState(state.note_lock_state))}</small></div></header>
-    <div class="cp-simulation-banner"><span>Simulation: no order was transmitted and no Canvas record was created.</span>${state.source === 'backend' ? '' : '<button type="button" class="secondary" data-care-plan-reset>Reset fixture</button>'}</div>
-    ${state.ui_error ? `<div class="error-line" role="alert"><span>${esc(state.ui_error)}</span>${state.persistence_state === 'conflict' ? '<button type="button" class="secondary" data-care-plan-reload-conflict>Reload current draft</button>' : ''}</div>` : ''}
-    <section class="cp-note">
-      <div class="cp-note-meta"><div><span>Note</span><h2>${esc(state.encounter_label ?? 'Care Plan')}</h2><details class="cp-note-provenance"><summary>Draft provenance</summary><small>${esc(fieldOrigin(state.indication))} · ${esc(lineage(state.indication))}</small><small>${esc(state.note_id)} · ${esc(state.bundle_id)}</small></details></div><strong>${locked ? 'Immutable Aleron lock record' : conflict ? 'Conflict · reload required' : 'Editable draft'}</strong></div>
-      <label class="cp-clinical-field"><h3>Encounter indication</h3><textarea data-care-plan-field="indication" ${editingDisabled ? 'disabled' : ''}>${esc(state.indication.value)}</textarea></label>
-      <div class="cp-entry-list">${state.entries.map((entry, index) => problemEntry(entry, index, editingDisabled)).join('')}</div>
-      <label class="cp-clinical-field"><h3>Narrative</h3><textarea data-care-plan-field="narrative" ${editingDisabled ? 'disabled' : ''}>${esc(state.narrative.value)}</textarea>${state.narrative_state === 'out_of_date' ? '<small class="cp-stale">Out of date after source-field edit. Edit or explicitly accept before lock.</small>' : ''}</label>
-    </section>
-    <section class="cp-commit-grid">
-      <article class="cp-commit-card"><span>Separate physician act</span><h2>Order authorization</h2><p>${includedOrders.length} included · ${readyOrders.length} ready</p>${orderControls}</article>
-      <article class="cp-commit-card"><span>Separate physician act</span><h2>Aleron Note Lock</h2><p>${includedProblems.length} problems · ${activeListAdds} active-list add · ${existingUpdates} update · ${noteOnly} note only</p>${locked ? '' : '<details><summary>Commitment boundary</summary><small>Locks the exact note and problem mutation set. It does not send pending orders.</small></details>'}${lockControls}</article>
-    </section>
-    ${pendingOrderActions(state)}
-    ${artifactSections}
+    <header class="screen-head"><div><h1>Care Plan${patientLabel}</h1><p>One problem-centered workspace for review, editing, and physician-controlled commitment.</p></div><div class="cp-save-state"><strong>${esc(state.persistence_state === 'saved' ? 'Saved' : displayState(state.persistence_state))} · revision ${state.server_revision}</strong><small>${esc(displayState(state.note_lock_state))}</small></div></header>
+    <div class="cp-simulation-banner"><span>Simulation: no order was transmitted, no patient release occurred, and no Canvas record was created.</span>${state.source === 'backend' ? '' : '<button type="button" class="secondary" data-care-plan-reset>Reset fixture</button>'}</div>
+    ${state.ui_error ? `<div class="error-line" role="alert"><span>${esc(state.ui_error)}</span>${conflict ? '<button type="button" class="secondary" data-care-plan-reload-conflict>Reload current Care Plan</button>' : ''}</div>` : ''}
+    ${context.changeReviewHtml ?? ''}
+    <section class="cp-plan-editor" aria-label="Editable Care Plan"><div class="cp-note-meta"><div><span>Canonical problem-centered workspace</span><h2>${esc(state.encounter_label ?? 'Care Plan')}</h2><details class="cp-note-provenance"><summary>Care Plan provenance</summary><small>${esc(fieldOrigin(state.indication))} · ${esc(lineage(state.indication))}</small></details></div><strong>${locked ? 'Locked plan record' : conflict ? 'Conflict · reload required' : 'Editable Care Plan'}</strong></div><label class="cp-clinical-field"><h3>Visit context</h3><textarea data-care-plan-field="indication" ${editingDisabled ? 'disabled' : ''}>${esc(state.indication.value)}</textarea></label><div class="cp-entry-list">${state.entries.map((entry, index) => problemEntry(entry, index, editingDisabled, context.highlightedEntryId)).join('')}</div></section>
+    <section class="cp-preview-note" aria-label="Derived Preview note"><div class="cp-note-meta"><div><span>Derived from the reviewed Care Plan</span><h2>Preview note</h2></div><strong>Read only</strong></div><p class="cp-preview-context">${esc(state.indication.value)}</p><div class="cp-preview-problems">${previewProblems || '<p class="truth-empty">No included problems.</p>'}</div><small>Editing happens in the Care Plan above. This preview updates from those problem, assessment, plan, and order fields.</small></section>
+    <section class="cp-progressive-workflow" aria-label="Care Plan commitment workflow"><article class="cp-commit-card"><span>${planReady || locked ? 'Ready physician act' : 'Revealed when ready'}</span><h2>1. Note lock</h2><p>Locks the exact derived Preview note and problem-list decisions.</p>${lockControls}</article>${locked ? `<article class="cp-commit-card"><span>Separate physician act</span><h2>2. Order authorization</h2><p>${includedOrders.length} included · ${readyOrders.length} ready</p>${orderControls}</article>` : ''}${releaseReady ? `<article class="cp-release-stage"><span>Final physician-controlled stage</span><h2>3. Patient release</h2>${context.releaseHtml ?? '<p>Release workflow not emitted for this case.</p>'}</article>` : ''}</section>
+    ${locked ? pendingOrderActions(state) : ''}${artifactSections}
   </div>`;
 }

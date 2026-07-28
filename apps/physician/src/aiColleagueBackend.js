@@ -2,7 +2,7 @@ const THREAD_SCHEMA = 'physician_ai_thread.v1';
 const WORKSPACE_SCHEMA = 'aleron.physician-ai-workspace.v1';
 const DISCLOSURE = 'Illustrative fixture response, not model generated';
 const PROVIDER = Object.freeze({ provider_id: 'synthetic_fixture', execution_mode: 'illustrative_fixture', model: 'illustrative-fixture-no-model' });
-const CONSULTATION_TYPES = new Set(['challenge', 'blind_second_opinion', 'specialist', 'evidence_review', 'data_audit']);
+const CONSULTATION_TYPES = new Set(['challenge', 'blind_second_opinion', 'specialist', 'evidence_review', 'data_audit', 'action_comparison']);
 const DRAFT_TYPES = new Set(['note_section', 'recommendation', 'problem_proposal', 'order_intent', 'care_plan_bundle']);
 const CAPABILITY_FIELDS = Object.freeze(['can_execute', 'can_sign', 'can_send', 'can_transmit', 'can_commit']);
 const SPECIALTIES = new Set(['General Internal Medicine', 'Cardiology', 'Endocrinology', 'Sleep Medicine', 'Clinical Pharmacology', 'Neurology', 'Psychiatry']);
@@ -67,11 +67,11 @@ function validateClaim(claim, thread, sourceRefs) {
     'claim_id', 'thread_id', 'patient_id', 'claim_type', 'statement', 'confidence', 'supporting_patient_facts',
     'contradictory_patient_facts', 'alternative_explanations', 'displayed_patient_assertions', 'missing_information',
     'confidence_raisers', 'confidence_lowerers', 'patient_source_refs', 'evidence_refs', 'state', 'created_by', 'created_at',
-    'adopted_at', 'adopted_by_actor_id', 'dismissed_at', 'dismissed_by_actor_id', 'dismissal_reason'
+    'adopted_at', 'adopted_by_actor_id', 'dismissed_at', 'dismissed_by_actor_id', 'dismissal_reason', 'revision_history'
   ], 'physician AI claim');
   nonEmpty(claim.claim_id, 'claim.claim_id');
   if (claim.thread_id !== thread.thread_id || claim.patient_id !== thread.patient_id) throw new Error('physician AI claim lineage does not match the thread patient.');
-  if (!['observation', 'hypothesis', 'interpretation', 'recommendation'].includes(claim.claim_type)) throw new Error('physician AI claim type is incompatible.');
+  if (!['pattern', 'hypothesis', 'interpretation', 'proposed_focus'].includes(claim.claim_type)) throw new Error('physician AI claim type is incompatible.');
   nonEmpty(claim.statement, 'claim.statement');
   validateConfidence(object(claim.confidence, 'claim.confidence'), 'claim.confidence');
   array(claim.supporting_patient_facts, 'claim.supporting_patient_facts').forEach((fact, index) => validateSourceFact(fact, `claim.supporting_patient_facts[${index}]`));
@@ -89,6 +89,16 @@ function validateClaim(claim, thread, sourceRefs) {
   if (claim.created_by.agent_role !== 'physician_colleague' || claim.created_by.model !== PROVIDER.model) throw new Error('physician AI claim model lineage is incompatible.');
   nonEmpty(claim.created_by.prompt_version, 'claim.created_by.prompt_version');
   nonEmpty(claim.created_at, 'claim.created_at');
+  if (claim.revision_history !== undefined) {
+    let expectedPrior = null;
+    for (const [index, revision] of array(claim.revision_history, 'claim.revision_history').entries()) {
+      onlyKeys(revision, ['prior_statement', 'revised_statement', 'source_consultation_id', 'accepted_at', 'accepted_by_actor_id'], `claim.revision_history[${index}]`);
+      for (const field of ['prior_statement', 'revised_statement', 'source_consultation_id', 'accepted_at', 'accepted_by_actor_id']) nonEmpty(revision[field], `claim.revision_history[${index}].${field}`);
+      if (expectedPrior !== null && revision.prior_statement !== expectedPrior) throw new Error('physician AI claim revision history is not contiguous.');
+      expectedPrior = revision.revised_statement;
+    }
+    if (expectedPrior !== null && claim.statement !== expectedPrior) throw new Error('physician AI claim statement does not match its revision history.');
+  }
   if (claim.state === 'adopted' && (!claim.adopted_at || !claim.adopted_by_actor_id)) throw new Error('adopted physician AI claim lacks adoption lineage.');
   if (claim.state === 'dismissed' && (!claim.dismissed_at || !claim.dismissed_by_actor_id || !claim.dismissal_reason)) throw new Error('dismissed physician AI claim lacks dismissal lineage.');
 }
@@ -113,17 +123,20 @@ function validateProviderPatientContext(context, label) {
   array(context.source_facts, `${label}.source_facts`).forEach((fact, index) => validateSourceFact(fact, `${label}.source_facts[${index}]`));
 }
 
-function validateConsultation(consultation, thread, claimIds, consultationIds) {
+function validateConsultation(consultation, thread, claimIds, consultationById) {
   onlyKeys(consultation, [
-    'consultation_id', 'thread_id', 'patient_id', 'target_claim_id', 'consultation_type', 'specialty', 'blinded_to_primary_answer',
+    'consultation_id', 'thread_id', 'patient_id', 'target_claim_id', 'target_statement', 'consultation_type', 'specialty', 'blinded_to_primary_answer',
     'context_packet_hash', 'input_question', 'position', 'confidence', 'supporting_patient_facts', 'contradictory_patient_facts',
     'alternatives', 'discriminating_information', 'evidence_refs', 'agreement', 'challenge_outcome', 'evidence_state',
     'information_boundary', 'provider_input', 'model', 'prompt_version', 'created_at', 'disclosure',
-    'parent_consultation_id', 'consultation_context_id', 'is_follow_up'
+    'parent_consultation_id', 'consultation_context_id', 'is_follow_up', 'proposed_revision', 'revision_disposition',
+    'revision_decided_at', 'revision_decided_by_actor_id'
   ], 'physician AI consultation');
   nonEmpty(consultation.consultation_id, 'consultation.consultation_id');
   if (consultation.thread_id !== thread.thread_id || consultation.patient_id !== thread.patient_id || consultation.context_packet_hash !== thread.context.packet_hash) throw new Error('physician AI consultation lineage does not match the thread patient and packet.');
   if (!claimIds.has(consultation.target_claim_id)) throw new Error('physician AI consultation target claim does not resolve.');
+  nonEmpty(consultation.target_statement, 'consultation.target_statement');
+  if (consultation.proposed_revision !== null && (typeof consultation.proposed_revision !== 'string' || !consultation.proposed_revision)) throw new Error('physician AI consultation proposed revision is invalid.');
   if (!CONSULTATION_TYPES.has(consultation.consultation_type)) throw new Error('physician AI consultation type is incompatible.');
   if (consultation.specialty !== null && !SPECIALTIES.has(consultation.specialty)) throw new Error('physician AI consultation specialty is incompatible.');
   if (consultation.consultation_type === 'specialist' && !consultation.specialty) throw new Error('specialist AI consultation requires a specialty.');
@@ -136,9 +149,21 @@ function validateConsultation(consultation, thread, claimIds, consultationIds) {
   validateStringArray(consultation.information_boundary.excluded, 'consultation.information_boundary.excluded');
   onlyKeys(consultation.provider_input, ['neutral_question', 'patient_context', 'target_claim', 'specialty', 'deidentified_query'], 'consultation.provider_input');
   if (consultation.provider_input.patient_context) validateProviderPatientContext(consultation.provider_input.patient_context, 'consultation.provider_input.patient_context');
+  if (consultation.provider_input.target_claim?.statement !== undefined && consultation.provider_input.target_claim.statement !== consultation.target_statement) throw new Error('physician AI consultation target statement does not match its frozen provider input.');
   if (consultation.model !== PROVIDER.model || consultation.disclosure !== DISCLOSURE) throw new Error('physician AI consultation provider lineage is incompatible.');
+  const hasDisposition = consultation.revision_disposition !== undefined;
+  if (hasDisposition) {
+    if (!['accepted', 'kept_current'].includes(consultation.revision_disposition)) throw new Error('physician AI consultation revision disposition is invalid.');
+    nonEmpty(consultation.revision_decided_at, 'consultation.revision_decided_at');
+    nonEmpty(consultation.revision_decided_by_actor_id, 'consultation.revision_decided_by_actor_id');
+    if (consultation.revision_disposition === 'accepted' && !consultation.proposed_revision) throw new Error('accepted physician AI consultation lacks a proposed revision.');
+  } else if (consultation.revision_decided_at !== undefined || consultation.revision_decided_by_actor_id !== undefined) {
+    throw new Error('physician AI consultation revision decision lineage is incomplete.');
+  }
   if (consultation.is_follow_up === true) {
-    if (!consultationIds.has(consultation.parent_consultation_id)) throw new Error('physician AI consultation follow-up parent does not resolve.');
+    const parent = consultationById.get(consultation.parent_consultation_id);
+    if (!parent) throw new Error('physician AI consultation follow-up parent does not resolve.');
+    if (parent.target_statement !== consultation.target_statement) throw new Error('physician AI consultation follow-up changed its frozen target wording.');
     nonEmpty(consultation.consultation_context_id, 'consultation.consultation_context_id');
   } else if ('parent_consultation_id' in consultation || 'consultation_context_id' in consultation || 'is_follow_up' in consultation) {
     throw new Error('physician AI consultation follow-up lineage is incomplete.');
@@ -208,9 +233,9 @@ export function validateBackendThread(threadValue, expectedPatientId, expectedPa
   const messageIds = new Set(messages.map((item) => item.message_id));
   if (messageIds.size !== messages.length) throw new Error('Backend physician AI thread contains duplicate message IDs.');
   const consultations = array(thread.consultations, 'thread.consultations');
-  const consultationIds = new Set(consultations.map((item) => item.consultation_id));
-  if (consultationIds.size !== consultations.length) throw new Error('Backend physician AI thread contains duplicate consultation IDs.');
-  consultations.forEach((item) => validateConsultation(item, thread, new Set(claimById.keys()), consultationIds));
+  const consultationById = new Map(consultations.map((item) => [item.consultation_id, item]));
+  if (consultationById.size !== consultations.length) throw new Error('Backend physician AI thread contains duplicate consultation IDs.');
+  consultations.forEach((item) => validateConsultation(item, thread, new Set(claimById.keys()), consultationById));
   const drafts = array(thread.drafts, 'thread.drafts');
   drafts.forEach((item) => validateDraft(item, thread, claimById, messageIds));
   if (new Set(drafts.map((item) => item.draft_id)).size !== drafts.length) throw new Error('Backend physician AI thread contains duplicate draft IDs.');
@@ -363,6 +388,14 @@ export function createPhysicianAIBackendClient({ baseURL, fetchImpl = globalThis
     },
     adoptClaim: (patientId, threadId, claimId, confirmationStatement) => request('POST', `physician/ai/claims/${encodeURIComponent(claimId)}/adopt`, { patient_id: patientId, thread_id: threadId, action: 'adopt_for_drafting', confirmation_statement: confirmationStatement }),
     dismissClaim: (patientId, threadId, claimId, reason) => request('POST', `physician/ai/claims/${encodeURIComponent(claimId)}/dismiss`, { patient_id: patientId, thread_id: threadId, reason }),
+    decideRevision: (patientId, threadId, claimId, consultationId, action, currentStatement, proposedRevision = null) => request('POST', `physician/ai/claims/${encodeURIComponent(claimId)}/revision`, {
+      patient_id: patientId,
+      thread_id: threadId,
+      consultation_id: consultationId,
+      action,
+      current_statement_confirmation: currentStatement,
+      ...(action === 'accept_revision' ? { proposed_revision_confirmation: proposedRevision } : {})
+    }),
     createDraft: (patientId, threadId, claimId, draftType) => request('POST', 'physician/ai/drafts', { patient_id: patientId, thread_id: threadId, claim_id: claimId, draft_type: draftType })
   };
 }

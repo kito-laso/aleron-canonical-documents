@@ -2,6 +2,7 @@ import { buildWearableSummaryFromPacket, formatTrendLine } from './wearableSumma
 import { buildCurrencyOfTruth, resolveRiskSource, pagesUrl } from './canonicalSources.js';
 import { formatClinicalNumber } from './clinicalValueFormat.js?v=physician-ai-colleague-v1';
 import { normalizeActionSpace } from './actionSpaceModel.js?v=physician-ai-colleague-v1';
+import { canonicalHash } from './carePlanWorkflow.js?v=physician-ai-care-plan-v7';
 
 function array(value) {
   return Array.isArray(value) ? value : [];
@@ -226,6 +227,318 @@ export function releaseIdentifier(release) {
   return release?.release_id ?? null;
 }
 
+// These top-level fields are derived from, or added after, the exact preview.
+// Every other present field is preview content, including unknown future fields.
+const RELEASE_PREVIEW_LIFECYCLE_FIELDS = new Set([
+  'preview_hash',
+  'release_id',
+  'release_state',
+  'patient_visible',
+  'signature_or_authorization_id',
+  'authorization_evidence',
+  'released_at',
+  'release_receipt'
+]);
+
+export function canonicalReleasePreviewContent(releasePackage) {
+  if (!releasePackage || typeof releasePackage !== 'object' || Array.isArray(releasePackage)) return null;
+  return Object.fromEntries(Object.entries(releasePackage)
+    .filter(([field]) => !RELEASE_PREVIEW_LIFECYCLE_FIELDS.has(field))
+    .map(([field, value]) => [field, structuredClone(value)]));
+}
+
+export function canonicalReleasePreviewHash(releasePackage) {
+  const content = canonicalReleasePreviewContent(releasePackage);
+  return content ? canonicalHash(content) : null;
+}
+
+const RELEASE_LINEAGE_FIELDS = Object.freeze([
+  'packet_id',
+  'packet_hash',
+  'source_engine_run_id',
+  'source_action_map_state_id',
+  'source_plan_id'
+]);
+
+function fixturePatientBoundaryIsSafe(boundary) {
+  return boundary?.projection === 'patient_safe_only'
+    && boundary?.raw_internal_artifacts === false;
+}
+
+function clinicalPatientBoundaryIsSafe(boundary) {
+  return boundary?.patient_safe === true
+    && boundary?.raw_internal_artifacts !== true
+    && Array.isArray(boundary?.visible_content)
+    && boundary.visible_content.includes('doctor_message')
+    && boundary.visible_content.includes('visible_actions');
+}
+
+const AUTHORIZATION_EVIDENCE_KEYS = Object.freeze(['authorization_id', 'preview_hash', 'release_id']);
+const RELEASE_RECEIPT_KEYS = Object.freeze([
+  'schema_version',
+  'receipt_kind',
+  'transition_kind',
+  'patient_id',
+  'release_id',
+  'preview_hash',
+  'authorization_id',
+  'released_at'
+]);
+
+function hasOwn(value, field) {
+  return Object.prototype.hasOwnProperty.call(value, field);
+}
+
+function hasExactKeys(value, keys) {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    && Object.keys(value).length === keys.length
+    && keys.every((key) => hasOwn(value, key));
+}
+
+export function coherentPhysicianCasePatientId(caseBundle) {
+  if (!caseBundle || typeof caseBundle !== 'object' || Array.isArray(caseBundle)) return null;
+  const aliases = [
+    [caseBundle?.patient_packet, 'patient_id'],
+    [caseBundle, 'patient_id'],
+    [caseBundle?.patient, 'patient_id'],
+    [caseBundle?.action_map_state?.patient, 'patient_id']
+  ];
+  const patientIds = [];
+  for (const [container, field] of aliases) {
+    if (!container || typeof container !== 'object' || Array.isArray(container) || !hasOwn(container, field)) continue;
+    const value = container[field];
+    if (typeof value !== 'string' || !value.trim()) return null;
+    patientIds.push(value.trim());
+  }
+  return patientIds.length > 0 && new Set(patientIds).size === 1 ? patientIds[0] : null;
+}
+
+function parseableTimestamp(value) {
+  return typeof value === 'string' && Boolean(value) && !Number.isNaN(Date.parse(value));
+}
+
+function authorizationEvidenceMatchesPackage(releasePackage, evidence = releasePackage?.authorization_evidence) {
+  if (!hasExactKeys(evidence, AUTHORIZATION_EVIDENCE_KEYS)) return false;
+  const previewHash = canonicalReleasePreviewHash(releasePackage);
+  const releaseId = derivedReleaseIdentity(releasePackage);
+  return typeof releasePackage.signature_or_authorization_id === 'string'
+    && Boolean(releasePackage.signature_or_authorization_id)
+    && evidence.authorization_id === releasePackage.signature_or_authorization_id
+    && evidence.preview_hash === previewHash
+    && evidence.release_id === releaseId
+    && releasePackage.preview_hash === previewHash
+    && releasePackage.release_id === releaseId;
+}
+
+export function patientReleaseReceiptIsValid(releasePackage, receipt = releasePackage?.release_receipt) {
+  if (!hasExactKeys(receipt, RELEASE_RECEIPT_KEYS)) return false;
+  return receipt.schema_version === 'patient_release_receipt.v1'
+    && receipt.receipt_kind === 'patient-release'
+    && receipt.transition_kind === 'release_to_patient'
+    && receipt.patient_id === releasePackage.patient_id
+    && receipt.release_id === releasePackage.release_id
+    && receipt.preview_hash === releasePackage.preview_hash
+    && receipt.authorization_id === releasePackage.signature_or_authorization_id
+    && parseableTimestamp(receipt.released_at)
+    && receipt.released_at === releasePackage.released_at;
+}
+
+export function releaseLifecycleTupleIsCoherent(releasePackage) {
+  if (!releasePackage || typeof releasePackage !== 'object' || Array.isArray(releasePackage)) return false;
+  const previewHash = canonicalReleasePreviewHash(releasePackage);
+  const releaseId = derivedReleaseIdentity(releasePackage);
+  if (!previewHash || !releaseId || releasePackage.preview_hash !== previewHash || releasePackage.release_id !== releaseId) return false;
+
+  if (releasePackage.release_state === 'release_package_draft') {
+    return releasePackage.patient_visible === false
+      && !hasOwn(releasePackage, 'signature_or_authorization_id')
+      && !hasOwn(releasePackage, 'authorization_evidence')
+      && !hasOwn(releasePackage, 'released_at')
+      && !hasOwn(releasePackage, 'release_receipt');
+  }
+  if (releasePackage.release_state === 'authorized_not_released') {
+    return releasePackage.patient_visible === false
+      && authorizationEvidenceMatchesPackage(releasePackage)
+      && !hasOwn(releasePackage, 'released_at')
+      && !hasOwn(releasePackage, 'release_receipt');
+  }
+  if (releasePackage.release_state === 'released_to_patient') {
+    return releasePackage.patient_visible === true
+      && authorizationEvidenceMatchesPackage(releasePackage)
+      && parseableTimestamp(releasePackage.released_at)
+      && patientReleaseReceiptIsValid(releasePackage);
+  }
+  return false;
+}
+
+export function createPatientReleaseReceipt(authorizedPackage, releasedAt) {
+  if (authorizedPackage?.release_state !== 'authorized_not_released'
+    || !releaseLifecycleTupleIsCoherent(authorizedPackage)
+    || !parseableTimestamp(releasedAt)) return null;
+  return {
+    schema_version: 'patient_release_receipt.v1',
+    receipt_kind: 'patient-release',
+    transition_kind: 'release_to_patient',
+    patient_id: authorizedPackage.patient_id,
+    release_id: authorizedPackage.release_id,
+    preview_hash: authorizedPackage.preview_hash,
+    authorization_id: authorizedPackage.signature_or_authorization_id,
+    released_at: releasedAt
+  };
+}
+
+function releaseLifecycleMetadataIsBounded(releasePackage) {
+  if (hasOwn(releasePackage, 'preview_hash')
+    && !/^sha256:[a-f0-9]{64}$/.test(releasePackage.preview_hash ?? '')) return false;
+  if (hasOwn(releasePackage, 'release_id')
+    && (typeof releasePackage.release_id !== 'string' || !releasePackage.release_id)) return false;
+  if (hasOwn(releasePackage, 'release_state')
+    && !['release_package_draft', 'authorized_not_released', 'released_to_patient'].includes(releasePackage.release_state)) return false;
+  if (hasOwn(releasePackage, 'patient_visible')
+    && typeof releasePackage.patient_visible !== 'boolean') return false;
+  if (hasOwn(releasePackage, 'signature_or_authorization_id')
+    && (typeof releasePackage.signature_or_authorization_id !== 'string' || !releasePackage.signature_or_authorization_id)) return false;
+  if (hasOwn(releasePackage, 'released_at') && !parseableTimestamp(releasePackage.released_at)) return false;
+  if (hasOwn(releasePackage, 'authorization_evidence')
+    && !hasExactKeys(releasePackage.authorization_evidence, AUTHORIZATION_EVIDENCE_KEYS)) return false;
+  if (hasOwn(releasePackage, 'release_receipt')
+    && (!releasePackage.release_receipt || typeof releasePackage.release_receipt !== 'object' || Array.isArray(releasePackage.release_receipt))) return false;
+  return releaseLifecycleTupleIsCoherent(releasePackage);
+}
+
+export function releasePreviewAliasesAreConsistent(caseBundle, releasePackage) {
+  if (!releasePackage || typeof releasePackage !== 'object' || Array.isArray(releasePackage)) return false;
+  if (!releaseLifecycleMetadataIsBounded(releasePackage)) return false;
+  if (!RELEASE_LINEAGE_FIELDS.every((field) => typeof releasePackage[field] === 'string' && releasePackage[field])) return false;
+
+  if (Object.prototype.hasOwnProperty.call(releasePackage, 'source_lineage')) {
+    const nested = releasePackage.source_lineage;
+    if (!nested || typeof nested !== 'object' || Array.isArray(nested)) return false;
+    if (!RELEASE_LINEAGE_FIELDS.every((field) => (
+      typeof nested[field] === 'string'
+      && nested[field]
+      && nested[field] === releasePackage[field]
+    ))) return false;
+  }
+
+  if (caseBundle) {
+    const patientId = coherentPhysicianCasePatientId(caseBundle);
+    if (!patientId || releasePackage.patient_id !== patientId) return false;
+    const current = currentArtifactLineage(caseBundle);
+    if (!RELEASE_LINEAGE_FIELDS.every((field) => releasePackage[field] === current[field])) return false;
+  }
+
+  const hasFixtureBoundary = Object.prototype.hasOwnProperty.call(releasePackage, 'patient_safe_boundary');
+  const hasClinicalBoundary = Object.prototype.hasOwnProperty.call(releasePackage, 'clinical_patient_boundary');
+  if (!hasFixtureBoundary && !hasClinicalBoundary) return false;
+  if (hasFixtureBoundary && !fixturePatientBoundaryIsSafe(releasePackage.patient_safe_boundary)) return false;
+  if (hasClinicalBoundary && !clinicalPatientBoundaryIsSafe(releasePackage.clinical_patient_boundary)) return false;
+  return true;
+}
+
+const RELEASE_PACKAGE_PROJECTION_ALIASES = Object.freeze([
+  'workflow',
+  'workflow_projection',
+  'physician_workflow'
+]);
+
+function presentReleasePackageRepresentations(caseBundle) {
+  if (!caseBundle || typeof caseBundle !== 'object' || Array.isArray(caseBundle)) return [];
+  const representations = [];
+  for (const field of ['release_preview', 'release_package']) {
+    if (hasOwn(caseBundle, field) && caseBundle[field] != null) representations.push(caseBundle[field]);
+  }
+  for (const alias of RELEASE_PACKAGE_PROJECTION_ALIASES) {
+    const projection = caseBundle[alias];
+    if (!projection || typeof projection !== 'object' || Array.isArray(projection)) continue;
+    if (hasOwn(projection, 'release_package') && projection.release_package != null) representations.push(projection.release_package);
+  }
+  return representations;
+}
+
+export function physicianReleasePackageFamily(caseBundle) {
+  const representations = presentReleasePackageRepresentations(caseBundle);
+  if (!representations.length) return { present: false, coherent: true, releasePackage: null };
+  if (representations.some((value) => !value || typeof value !== 'object' || Array.isArray(value))) {
+    return { present: true, coherent: false, releasePackage: null };
+  }
+  if (representations.some((value) => !releasePreviewAliasesAreConsistent(caseBundle, value))) {
+    return { present: true, coherent: false, releasePackage: null };
+  }
+  const packageHashes = new Set(representations.map((value) => canonicalHash(value)));
+  if (packageHashes.size !== 1) return { present: true, coherent: false, releasePackage: null };
+  return { present: true, coherent: true, releasePackage: representations[0] };
+}
+
+export function releasePackagesShareImmutableFamily(left, right) {
+  if (!releasePreviewAliasesAreConsistent(null, left)
+    || !releasePreviewAliasesAreConsistent(null, right)) return false;
+  return left.patient_id === right.patient_id
+    && left.release_id === right.release_id
+    && left.preview_hash === right.preview_hash
+    && canonicalHash(canonicalReleasePreviewContent(left)) === canonicalHash(canonicalReleasePreviewContent(right));
+}
+
+const RELEASE_LIFECYCLE_RANK = Object.freeze({
+  release_package_draft: 0,
+  authorized_not_released: 1,
+  released_to_patient: 2
+});
+
+export function releasePackageTransitionIsMonotonic(previousPackage, nextPackage) {
+  if (!releasePackagesShareImmutableFamily(previousPackage, nextPackage)) return false;
+  const previousRank = RELEASE_LIFECYCLE_RANK[previousPackage.release_state];
+  const nextRank = RELEASE_LIFECYCLE_RANK[nextPackage.release_state];
+  if (!Number.isInteger(previousRank) || !Number.isInteger(nextRank)) return false;
+  if (nextRank === previousRank) return canonicalHash(previousPackage) === canonicalHash(nextPackage);
+  if (nextRank !== previousRank + 1) return false;
+  if (previousRank >= 1) {
+    return previousPackage.signature_or_authorization_id === nextPackage.signature_or_authorization_id
+      && canonicalHash(previousPackage.authorization_evidence) === canonicalHash(nextPackage.authorization_evidence);
+  }
+  return true;
+}
+
+export function currentReceiptBackedReleasePackageIsValid(caseBundle, releasePackage) {
+  const patientId = coherentPhysicianCasePatientId(caseBundle);
+  return Boolean(patientId)
+    && releasePackage?.patient_id === patientId
+    && releasePackage?.release_state === 'released_to_patient'
+    && releasePackage?.patient_visible === true
+    && releasePreviewAliasesAreConsistent(caseBundle, releasePackage);
+}
+
+export function derivedReleaseIdentity(releasePackage) {
+  const patientId = releasePackage?.patient_id;
+  const previewHash = canonicalReleasePreviewHash(releasePackage);
+  if (typeof patientId !== 'string' || !patientId || !previewHash) return null;
+  return `release:${encodeURIComponent(patientId)}:${previewHash.replace(/^sha256:/, '')}`;
+}
+
+export function exactReleaseAuthorizationEvidence(releasePackage, authorizationId) {
+  if (typeof authorizationId !== 'string' || !authorizationId) return null;
+  if (!releasePreviewAliasesAreConsistent(null, releasePackage)) return null;
+  const releaseId = derivedReleaseIdentity(releasePackage);
+  const previewHash = canonicalReleasePreviewHash(releasePackage);
+  if (!releaseId || !previewHash) return null;
+  return { authorization_id: authorizationId, release_id: releaseId, preview_hash: previewHash };
+}
+
+export function releasePackageMatchesAuthorizationEvidence(releasePackage, evidence) {
+  if (!releasePackage || typeof releasePackage !== 'object' || Array.isArray(releasePackage)
+    || !evidence || typeof evidence !== 'object' || Array.isArray(evidence)) return false;
+  if (!releasePreviewAliasesAreConsistent(null, releasePackage)) return false;
+  const previewHash = canonicalReleasePreviewHash(releasePackage);
+  const releaseId = derivedReleaseIdentity(releasePackage);
+  return typeof evidence.authorization_id === 'string'
+    && Boolean(evidence.authorization_id)
+    && releasePackage.signature_or_authorization_id === evidence.authorization_id
+    && releasePackage.preview_hash === previewHash
+    && releasePackage.release_id === releaseId
+    && evidence.preview_hash === previewHash
+    && evidence.release_id === releaseId;
+}
+
 export function currentArtifactLineage(caseBundle) {
   const packet = caseBundle?.patient_packet ?? {};
   const run = caseBundle?.engine_run ?? caseBundle?.analytical_run ?? {};
@@ -234,7 +547,7 @@ export function currentArtifactLineage(caseBundle) {
   return {
     packet_id: packet.packet_id ?? null,
     packet_hash: packet.packet_hash ?? run.patient_packet_hash ?? null,
-    source_engine_run_id: run.run_id ?? plan.source_engine_run_id ?? actionMap.source_engine_run_id ?? null,
+    source_engine_run_id: run.run_id ?? plan.source_engine_run_id ?? actionMap.source_engine_run_id ?? actionMap.run_id ?? null,
     source_action_map_state_id: actionMap.action_map_state_id ?? plan.source_action_map_state ?? null,
     source_plan_id: plan.plan_id ?? null
   };
@@ -281,6 +594,43 @@ export function buildReleasePreviewRequest(caseBundle) {
   const messageRef = caseBundle?.persisted_physician_message_ref ?? caseBundle?.physician_message_ref ?? plan.persisted_physician_message_ref;
   if (messageRef) payload.physician_message_ref = messageRef;
   return payload;
+}
+
+export function buildFixtureReleasePreview(caseBundle, patientId = caseBundle?.patient_id) {
+  const request = buildReleasePreviewRequest(caseBundle);
+  const requiredItems = array(caseBundle?.clinical_plan?.required_items);
+  const addressed = new Set(request.addressed_required_item_ids);
+  const unresolved = requiredItems.filter((item) => !addressed.has(String(item.id ?? '')));
+  if (requiredItems.length && unresolved.length) {
+    throw new Error(`Release preview requires dispositions for: ${unresolved.map((item) => item.id).join(', ')}.`);
+  }
+  const dispositions = requiredItems.map((item) => ({
+    id: item.id,
+    title: item.title ?? item.label ?? item.id,
+    disposition: 'physician_reviewed'
+  }));
+  const preview = {
+    schema_version: 'release_package.v1',
+    patient_id: patientId,
+    ...currentArtifactLineage(caseBundle),
+    release_state: 'release_package_draft',
+    patient_visible: false,
+    doctor_message: 'Physician-reviewed plan for this synthetic patient case.',
+    visible_actions: dispositions.map((item) => ({ id: item.id, title: item.title, disposition: item.disposition })),
+    hidden_items: array(caseBundle?.clinical_plan?.deferred_not_selected).map((item) => ({
+      id: item.id,
+      title: item.title ?? item.label ?? item.id,
+      disposition: 'not_selected'
+    })),
+    required_item_dispositions: dispositions,
+    required_item_dispositions_complete: true,
+    provenance: { source: 'Aleron physician synthetic fixture', packet_id: request.packet_id, packet_hash: request.packet_hash },
+    patient_safe_boundary: { projection: 'patient_safe_only', raw_internal_artifacts: false },
+    nonclinical_boundary: 'Synthetic F1 simulation only. No patient release or external transmission occurs.'
+  };
+  preview.preview_hash = canonicalReleasePreviewHash(preview);
+  preview.release_id = derivedReleaseIdentity(preview);
+  return preview;
 }
 
 /**
@@ -633,14 +983,12 @@ function normalizeWorkflow(caseBundle, currentReleasePreview, auditEvents = []) 
   // `workflow` is the deployed patient-api field. The aliases keep older contract
   // fixtures readable without allowing review history to become lifecycle truth.
   const projection = caseBundle.workflow ?? caseBundle.workflow_projection ?? caseBundle.physician_workflow ?? null;
-  const releasePackage = currentReleasePreview ?? projection?.release_package ?? null;
+  const releasePackage = currentReleasePreview;
   const nestedRelease = projection?.release ?? {};
-  const patientVisible = projection?.patient_visible === true
-    || projection?.patient_visibility === 'visible'
-    || nestedRelease.patient_visible === true;
-  const explicitReleased = projection?.release_state === 'released_to_patient'
-    && patientVisible
-    && projection?.read_only !== false;
+  const packageIsCoherentAndCurrent = releasePreviewAliasesAreConsistent(caseBundle, releasePackage);
+  const explicitReleased = currentReceiptBackedReleasePackageIsValid(caseBundle, releasePackage);
+  const patientVisible = explicitReleased;
+  const trustedReleaseState = packageIsCoherentAndCurrent ? releasePackage.release_state : 'release_state_missing';
   const lineageKeys = ['packet_id', 'packet_hash', 'source_engine_run_id', 'source_action_map_state_id', 'source_plan_id'];
   const boundary = releasePackage?.patient_safe_boundary ?? releasePackage?.clinical_patient_boundary ?? null;
   const boundaryComplete = Boolean(
@@ -651,10 +999,10 @@ function normalizeWorkflow(caseBundle, currentReleasePreview, auditEvents = []) 
   );
   const release = {
     ...nestedRelease,
-    preview_ready: nestedRelease.preview_ready ?? projection?.preview_ready ?? Boolean(releasePackage?.preview_hash),
-    authorization_ready: nestedRelease.authorization_ready ?? projection?.authorized ?? false,
+    preview_ready: packageIsCoherentAndCurrent,
+    authorization_ready: packageIsCoherentAndCurrent && ['authorized_not_released', 'released_to_patient'].includes(releasePackage.release_state),
     patient_visible: patientVisible,
-    released_at: nestedRelease.released_at ?? releasePackage?.released_at ?? null,
+    released_at: explicitReleased ? releasePackage.released_at : null,
     required_item_dispositions_complete: nestedRelease.required_item_dispositions_complete
       ?? (array(releasePackage?.required_item_dispositions).length > 0),
     provenance_complete: nestedRelease.provenance_complete
@@ -669,7 +1017,7 @@ function normalizeWorkflow(caseBundle, currentReleasePreview, auditEvents = []) 
   const lifecycleState = projection?.lifecycle_state ?? projection?.state ?? 'workflow_projection_missing';
   const operationalCopy = explicitReleased
     ? { whyNow: 'The patient-facing plan has been released and requires handoff verification.', next: { label: 'Verify patient receipt', detail: 'Confirm patient visibility and review the immutable audit trail.' } }
-    : projection?.release_state === 'authorized_not_released'
+    : trustedReleaseState === 'authorized_not_released'
       ? { whyNow: 'The exact preview is authorized but has not been released to the patient.', next: { label: 'Release to patient', detail: 'Complete the final backend release after confirming authorization.' } }
       : release.preview_ready
         ? { whyNow: 'The server-generated patient-facing preview is ready for physician attestation.', next: { label: 'Review and attest to the exact preview', detail: 'Confirm dispositions, provenance, boundary, and lineage before authorization.' } }
@@ -695,8 +1043,8 @@ function normalizeWorkflow(caseBundle, currentReleasePreview, auditEvents = []) 
     schemaVersion: projection?.schema_version ?? null,
     emitted: Boolean(projection),
     lifecycleState,
-    releaseState: explicitReleased ? 'released_to_patient' : (projection?.release_state ?? 'release_state_missing'),
-    patientVisibility: patientVisible ? 'visible' : (projection?.patient_visibility ?? 'hidden'),
+    releaseState: trustedReleaseState,
+    patientVisibility: patientVisible ? 'visible' : 'hidden',
     whyNow: projection?.why_now ?? operationalCopy.whyNow,
     highestPriorityIssue: projection?.highest_priority_issue ?? (priority ? {
       label: priority.title ?? priority.label ?? priority.id,
@@ -768,8 +1116,8 @@ export function adaptPhysicianCase(caseBundle) {
   const audit = array(caseBundle.audit_log);
   const overrides = array(caseBundle.structured_overrides).map(overrideRecord);
   const overridesByTarget = latestOverrides(overrides);
-  const releasePreview = caseBundle.release_preview ?? caseBundle.release_package ?? null;
-  const currentReleasePreview = artifactBindsCurrentLineage(caseBundle, releasePreview) ? releasePreview : null;
+  const releaseFamily = physicianReleasePackageFamily(caseBundle);
+  const currentReleasePreview = releaseFamily.coherent ? releaseFamily.releasePackage : null;
   const normalizedWorkflow = normalizeWorkflow(caseBundle, currentReleasePreview, audit);
   const analysisStatus = caseBundle.analysis_status ?? {};
   const analysisState = typeof analysisStatus.status === 'string' && analysisStatus.status ? analysisStatus.status : 'missing';

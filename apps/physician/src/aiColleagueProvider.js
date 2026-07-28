@@ -1,5 +1,6 @@
 export const CODEX_PROVIDER_ENDPOINT = 'http://127.0.0.1:4317/v1/physician-ai/codex';
 export const CODEX_PROVIDER_LABEL = 'GPT-5.6 Sol · Codex subscription · synthetic case';
+export const CODEX_CLIENT_TIMEOUT_MS = 130000;
 
 const MODEL = 'gpt-5.6-sol';
 const PROVIDER = 'codex_subscription';
@@ -63,6 +64,7 @@ export function buildCodexProviderRequest({
   if (!OPERATIONS.has(operation)) {
     throw new CodexProviderError(`Unsupported Codex operation: ${operation}`, { code: 'INVALID_OPERATION' });
   }
+  const blinded = operation === 'consultation' && consultationType === 'blind_second_opinion';
   const request = {
     mode: PROVIDER,
     operation,
@@ -70,7 +72,11 @@ export function buildCodexProviderRequest({
     patient_id: workspace.patientId,
     packet_hash: workspace.packetHash,
     thread_id: workspace.activeThreadId,
-    session_id: sessionId
+    session_id: sessionId,
+    current_thread_context: blinded ? [] : array(workspace.activeThread?.messages)
+      .slice(-20)
+      .filter((message) => ['physician', 'assistant'].includes(message?.role) && String(message?.content ?? '').trim())
+      .map((message) => ({ role: message.role, content: String(message.content).trim() }))
   };
   if (operation === 'message') {
     request.question = String(question ?? '').trim();
@@ -125,7 +131,7 @@ export function createCodexSubscriptionProvider({
   endpoint = CODEX_PROVIDER_ENDPOINT,
   fetchImpl = globalThis.fetch,
   sessionId,
-  timeoutMs = 50000
+  timeoutMs = CODEX_CLIENT_TIMEOUT_MS
 } = {}) {
   if (typeof fetchImpl !== 'function') throw new CodexProviderError('Fetch is unavailable for the local Codex provider.');
   if (!sessionId) throw new CodexProviderError('A local Codex session ID is required.');

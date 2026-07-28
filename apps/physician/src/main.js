@@ -12,11 +12,23 @@ import {
   requestPhysicianAuthorization,
   requestReleasePreview,
   startPhysicianReview
-} from './apiClient.js?v=physician-ai-care-plan-v4';
-import { adaptBackendThreadWorkspace, applyLocalDraftEdit } from './aiColleagueBackend.js?v=physician-ai-care-plan-v4';
-import { adaptPhysicianCase, artifactBindsCurrentLineage, buildReleasePreviewRequest, releaseIdentifier } from './dashboardAdapter.js?v=physician-ai-care-plan-v4';
-import { decisionReasonOptionsHTML, renderDashboard, renderEmptyStaging, renderFatalError } from './dashboardApp.js?v=physician-ai-care-plan-v4';
+} from './apiClient.js?v=physician-ai-care-plan-v7';
+import { adaptBackendThreadWorkspace, applyLocalDraftEdit } from './aiColleagueBackend.js?v=physician-ai-care-plan-v7';
 import {
+  adaptPhysicianCase,
+  artifactBindsCurrentLineage,
+  buildFixtureReleasePreview,
+  buildReleasePreviewRequest,
+  createPatientReleaseReceipt,
+  exactReleaseAuthorizationEvidence,
+  patientReleaseReceiptIsValid,
+  releaseIdentifier,
+  releasePackageMatchesAuthorizationEvidence,
+  releasePreviewAliasesAreConsistent
+} from './dashboardAdapter.js?v=physician-ai-care-plan-v7';
+import { decisionReasonOptionsHTML, renderDashboard, renderEmptyStaging, renderFatalError } from './dashboardApp.js?v=physician-ai-care-plan-v7';
+import {
+  acceptConsultationRevision,
   adoptClaim,
   applyProviderConsultation,
   applyProviderDraft,
@@ -27,6 +39,7 @@ import {
   createDraft,
   createWorkspaceRepository,
   dismissClaim,
+  keepCurrentClaimWording,
   markCarePlanProposalPromoted,
   resumeAIWorkspace,
   runFixtureConsultationFollowUp,
@@ -36,15 +49,16 @@ import {
   sendFixtureMessage,
   startNewThread,
   updateDraftContent
-} from './aiColleague.js?v=physician-ai-care-plan-v4';
+} from './aiColleague.js?v=physician-ai-care-plan-v7';
 import {
   buildConsultationFollowUpQuestion,
   buildCodexProviderRequest,
   codexModeFromLocation,
   createCodexSubscriptionProvider
-} from './aiColleagueProvider.js?v=physician-ai-care-plan-v4';
-import { createSyntheticCarePlanStore } from './carePlanWorkflow.js?v=physician-ai-care-plan-v4';
-import { adaptCarePlanBackendState, isPublicStagingLocation, payloadFromCarePlanState, usesLocalCarePlanStore } from './carePlanBackend.js?v=physician-ai-care-plan-v4';
+} from './aiColleagueProvider.js?v=physician-ai-care-plan-v7';
+import { createSyntheticCarePlanStore } from './carePlanWorkflow.js?v=physician-ai-care-plan-v7';
+import { adaptCarePlanBackendState, isPublicStagingLocation, payloadFromCarePlanState, usesLocalCarePlanStore } from './carePlanBackend.js?v=physician-ai-care-plan-v7';
+import { createReviewReleaseSessionRepository } from './reviewReleaseSession.js?v=physician-ai-care-plan-v7';
 
 const app = document.querySelector('#app');
 const state = {
@@ -73,7 +87,7 @@ const state = {
   carePlanError: null,
   carePlanLockConfirmationPending: false,
   carePlanPendingEditMode: false,
-  carePlanMode: 'plan'
+  carePlanHighlightedEntryId: null
 };
 
 function selectedTask() {
@@ -105,7 +119,9 @@ function currentReleaseLinkage(caseBundle) {
 function releasePackageIsCurrent(caseBundle, releasePackage) {
   if (!releasePackage || typeof releasePackage !== 'object') return false;
   const patientId = caseBundle?.patient_packet?.patient_id ?? caseBundle?.patient_id;
-  return releasePackage.patient_id === patientId && artifactBindsCurrentLineage(caseBundle, releasePackage);
+  return releasePackage.patient_id === patientId
+    && artifactBindsCurrentLineage(caseBundle, releasePackage)
+    && releasePreviewAliasesAreConsistent(caseBundle, releasePackage);
 }
 
 function inferReviewStarted() {
@@ -137,15 +153,26 @@ function aiBackendMode() {
   return !aiFixtureMode() && !aiCodexMode();
 }
 
-const aiSessionRecords = new Map();
-const aiSessionStorage = {
-  getItem: (key) => aiSessionRecords.get(key) ?? null,
-  setItem: (key, value) => aiSessionRecords.set(key, value),
-  removeItem: (key) => aiSessionRecords.delete(key)
-};
-
 function aiRepository() {
-  return createWorkspaceRepository(aiSessionStorage);
+  if (typeof window === 'undefined' || !window.localStorage) throw new Error('Aleron AI F1 persistence requires browser localStorage.');
+  return createWorkspaceRepository(window.localStorage);
+}
+
+function reviewReleaseSessionRepository() {
+  if (typeof window === 'undefined' || !window.localStorage) throw new Error('F1 review/release persistence requires browser localStorage.');
+  return createReviewReleaseSessionRepository(window.localStorage);
+}
+
+function usesReviewReleaseSessionPersistence() {
+  return aiFixtureMode() || aiCodexMode();
+}
+
+function persistCurrentReviewReleaseSession() {
+  if (!usesReviewReleaseSessionPersistence() || !state.activeCase) return;
+  reviewReleaseSessionRepository().save(state.activeCase, {
+    reviewStarted: state.reviewStarted,
+    releasePackage: state.releasePackage
+  });
 }
 
 function createAIProviderSessionId() {
@@ -168,7 +195,7 @@ const carePlanPhysician = { actor_type: 'physician', actor_id: 'physician-synthe
 
 function carePlanBackendMode() {
   if (typeof window === 'undefined') return false;
-  return !usesLocalCarePlanStore(window.location, aiFixtureMode());
+  return !usesLocalCarePlanStore(window.location, aiFixtureMode(), aiCodexMode());
 }
 
 function codexProvider() {
@@ -224,17 +251,47 @@ function focusAI(selector) {
   });
 }
 
+function focusAIThread(threadId) {
+  queueMicrotask(() => {
+    const target = [...document.querySelectorAll('.ai-conference-recent [data-ai-thread]')]
+      .find((candidate) => candidate.dataset.aiThread === threadId);
+    if (typeof target?.focus === 'function') target.focus();
+  });
+}
+
+function focusAIClaim(claimId) {
+  queueMicrotask(() => {
+    const target = [...document.querySelectorAll('[data-ai-clinical-thought]')]
+      .find((candidate) => candidate.dataset.aiClinicalThought === claimId);
+    if (typeof target?.focus === 'function') target.focus({ preventScroll: true });
+    target?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
+  });
+}
+
+function focusAIConsultation(consultationId) {
+  queueMicrotask(() => {
+    const target = [...document.querySelectorAll('[data-ai-consultation-result]')]
+      .find((candidate) => candidate.dataset.aiConsultationResult === consultationId);
+    if (typeof target?.focus === 'function') target.focus({ preventScroll: true });
+    target?.scrollIntoView?.({ block: 'start', behavior: 'smooth' });
+  });
+}
+
 function adoptBackendAIThread(thread) {
   const prior = state.aiWorkspace;
   const threads = [thread, ...(prior?.threads ?? [])
     .filter((candidate) => candidate.threadId !== thread.thread_id)
     .map((candidate) => candidate.backendAggregate)
     .filter(Boolean)];
-  state.aiWorkspace = adaptBackendThreadWorkspace(state.activeCase, threads, thread.thread_id, {
-    localDraftEdits: aiLocalDraftEdits,
-    selectedClaimId: prior?.selectedClaimId,
-    adoptionPendingClaimId: prior?.adoptionPendingClaimId
-  });
+  state.aiWorkspace = {
+    ...adaptBackendThreadWorkspace(state.activeCase, threads, thread.thread_id, {
+      localDraftEdits: aiLocalDraftEdits,
+      selectedClaimId: prior?.selectedClaimId,
+      adoptionPendingClaimId: prior?.adoptionPendingClaimId
+    }),
+    discussingClaimId: prior?.discussingClaimId ?? null,
+    consultationRuns: prior?.consultationRuns ?? []
+  };
   state.aiError = null;
   render();
 }
@@ -245,6 +302,23 @@ function setAIProviderPending() {
     ...state.aiWorkspace,
     providerPending: true,
     providerError: null
+  };
+  render();
+}
+
+function setAIConsultationRun(claimId, consultationType, status, error = null) {
+  const prior = state.aiWorkspace?.consultationRuns ?? [];
+  const retained = prior.filter((run) =>
+    run.claim_id !== claimId || run.consultation_type !== consultationType
+  );
+  state.aiWorkspace = {
+    ...state.aiWorkspace,
+    consultationRuns: status === 'completed' ? retained : [...retained, {
+      claim_id: claimId,
+      consultation_type: consultationType,
+      status,
+      error
+    }]
   };
   render();
 }
@@ -303,15 +377,16 @@ async function sendAIMessage(message) {
 }
 
 async function runAIConsultation(claimId, consultationType, specialty) {
+  setAIConsultationRun(claimId, consultationType, 'running');
   if (aiFixtureMode()) {
     const result = runFixtureConsultation(state.aiWorkspace, claimId, consultationType, { specialty });
     persistAIWorkspace(result.workspace);
+    setAIConsultationRun(claimId, consultationType, 'completed');
     return;
   }
   const targetClaim = activeAIClaim(claimId);
   if (!targetClaim) throw new Error('Consultation requires a current material claim.');
   if (aiBackendMode()) {
-    setAIProviderPending();
     const result = await getPhysicianAIBackendClient().createConsultation(
       state.activePatientId,
       activeAIThread().threadId,
@@ -321,9 +396,9 @@ async function runAIConsultation(claimId, consultationType, specialty) {
     );
     if (!result.thread) throw new Error('Backend physician AI consultation returned no aggregate.');
     adoptBackendAIThread(result.thread);
+    setAIConsultationRun(claimId, consultationType, 'completed');
     return;
   }
-  setAIProviderPending();
   const response = await codexProvider().send(buildCodexProviderRequest({
     workspace: state.aiWorkspace,
     operation: 'consultation',
@@ -334,6 +409,32 @@ async function runAIConsultation(claimId, consultationType, specialty) {
     sessionId: aiProviderSessionId
   }));
   persistAIWorkspace(applyProviderConsultation(state.aiWorkspace, claimId, response));
+  setAIConsultationRun(claimId, consultationType, 'completed');
+}
+
+async function decideAIConsultationRevision(claimId, consultationId, action) {
+  if (!aiBackendMode()) {
+    const next = action === 'accept_revision'
+      ? acceptConsultationRevision(state.aiWorkspace, claimId, consultationId)
+      : keepCurrentClaimWording(state.aiWorkspace, claimId, consultationId);
+    persistAIWorkspace(next);
+    return;
+  }
+  const claim = activeAIClaim(claimId);
+  const consultation = activeAIThread()?.consultations?.find((item) => item.consultation_id === consultationId);
+  if (!claim || !consultation || consultation.target_claim_id !== claimId) throw new Error('Revision decision requires the selected consultation and clinical thought.');
+  setAIProviderPending();
+  const result = await getPhysicianAIBackendClient().decideRevision(
+    state.activePatientId,
+    activeAIThread().threadId,
+    claimId,
+    consultationId,
+    action,
+    claim.statement,
+    consultation.proposed_revision ?? null
+  );
+  if (!result.thread) throw new Error('Backend physician AI revision decision returned no aggregate.');
+  adoptBackendAIThread(result.thread);
 }
 
 async function runAIConsultationFollowUp(consultationId, question) {
@@ -401,19 +502,35 @@ async function createAIDraft(claimId, draftType) {
 }
 
 async function createAutomaticCarePlanProposal(claimId) {
-  if (!aiBackendMode()) {
+  if (aiFixtureMode()) {
     persistAIWorkspace(createCarePlanProposalDraft(state.aiWorkspace, claimId).workspace);
     return;
   }
+  if (aiBackendMode()) {
+    setAIProviderPending();
+    const drafted = await getPhysicianAIBackendClient().createDraft(
+      state.activePatientId,
+      activeAIThread().threadId,
+      claimId,
+      'care_plan_bundle'
+    );
+    if (!drafted.thread) throw new Error('Backend Care Plan proposal drafting returned no aggregate.');
+    adoptBackendAIThread(drafted.thread);
+    return;
+  }
+  const adoptedClaim = activeAIClaim(claimId);
+  if (!adoptedClaim || adoptedClaim.state !== 'adopted') throw new Error('Care Plan proposal drafting requires an explicitly adopted conclusion.');
+  const existing = activeAIThread()?.drafts.find((draft) => draft.draft_type === 'care_plan_bundle' && draft.adopted_claim_ids?.includes(claimId));
+  if (existing) return;
   setAIProviderPending();
-  const drafted = await getPhysicianAIBackendClient().createDraft(
-    state.activePatientId,
-    activeAIThread().threadId,
-    claimId,
-    'care_plan_bundle'
-  );
-  if (!drafted.thread) throw new Error('Backend Care Plan proposal drafting returned no aggregate.');
-  adoptBackendAIThread(drafted.thread);
+  const response = await codexProvider().send(buildCodexProviderRequest({
+    workspace: state.aiWorkspace,
+    operation: 'draft',
+    draftType: 'care_plan_bundle',
+    adoptedClaims: [adoptedClaim],
+    sessionId: aiProviderSessionId
+  }));
+  persistAIWorkspace(applyProviderDraft(state.aiWorkspace, response));
 }
 
 function resetCarePlanSession() {
@@ -434,11 +551,16 @@ async function adoptCase(caseBundle) {
     const saved = await flushCarePlanChanges();
     if (!saved) throw new Error('Save the current Care Plan before loading a different patient-state packet.');
   }
-  const releasePackage = caseBundle?.release_preview ?? caseBundle?.release_package ?? null;
+  const persistedReviewRelease = usesReviewReleaseSessionPersistence()
+    ? reviewReleaseSessionRepository().load(caseBundle)
+    : null;
+  const releasePackage = persistedReviewRelease
+    ? persistedReviewRelease.releasePackage
+    : caseBundle?.release_preview ?? caseBundle?.release_package ?? null;
   let nextCarePlanStore = carePlanStore;
   let nextCarePlanClient = carePlanClient;
   let nextCarePlanState;
-  if (aiFixtureMode()) {
+  if (aiFixtureMode() || aiCodexMode()) {
     const storedCarePlan = nextCarePlanStore?.getState?.();
     if (switchingPatient || !nextCarePlanStore || storedCarePlan?.patient_reference !== aiWorkspace.patientId || storedCarePlan?.packet_hash !== aiWorkspace.packetHash) {
       const clinicalPlan = caseBundle?.clinical_plan ?? {};
@@ -480,7 +602,11 @@ async function adoptCase(caseBundle) {
   carePlanClient = nextCarePlanClient;
   state.carePlanState = nextCarePlanState;
   state.carePlanError = null;
-  inferReviewStarted();
+  if (persistedReviewRelease) {
+    state.reviewStarted = persistedReviewRelease.reviewStarted;
+  } else {
+    inferReviewStarted();
+  }
 }
 
 async function loadCase(patientId) {
@@ -680,10 +806,6 @@ function attachListeners() {
     render();
   }));
 
-  document.querySelectorAll('[data-care-plan-mode]').forEach((button) => button.addEventListener('click', () => {
-    state.carePlanMode = button.dataset.carePlanMode;
-    render();
-  }));
 
   document.querySelector('[data-care-plan-reload-conflict]')?.addEventListener('click', async () => {
     try {
@@ -704,13 +826,16 @@ function attachListeners() {
   document.querySelector('[data-ai-new-thread]')?.addEventListener('click', async () => {
     try {
       if (!aiBackendMode()) {
-        persistAIWorkspace(startNewThread(state.aiWorkspace));
+        const nextWorkspace = startNewThread(state.aiWorkspace);
+        persistAIWorkspace(nextWorkspace);
+        focusAIThread(nextWorkspace.activeThreadId);
         return;
       }
       setAIProviderPending();
       const result = await getPhysicianAIBackendClient().createThread(state.activePatientId, 'New conversation');
       if (!result.thread) throw new Error('Backend physician AI thread creation returned no aggregate.');
       adoptBackendAIThread(result.thread);
+      focusAIThread(result.thread.thread_id);
     } catch (error) {
       failAI(error);
     }
@@ -720,19 +845,35 @@ function attachListeners() {
     try {
       if (!aiBackendMode()) {
         persistAIWorkspace(selectThread(state.aiWorkspace, button.dataset.aiThread));
+        focusAIThread(button.dataset.aiThread);
         return;
       }
       setAIProviderPending();
       const result = await getPhysicianAIBackendClient().getThread(state.activePatientId, button.dataset.aiThread);
       if (!result.thread) throw new Error('Backend physician AI thread load returned no aggregate.');
       adoptBackendAIThread(result.thread);
+      focusAIThread(result.thread.thread_id);
     } catch (error) {
       failAI(error);
     }
   }));
 
-  [...document.querySelectorAll('[data-ai-review-claim]'), ...document.querySelectorAll('[data-ai-ledger-claim]')].forEach((button) => button.addEventListener('click', () => {
-    persistAIWorkspace(selectClaimForReview(state.aiWorkspace, button.dataset.aiReviewClaim ?? button.dataset.aiLedgerClaim));
+  const conferenceTabs = [...document.querySelectorAll('.ai-conference-recent [role="tab"]')];
+  conferenceTabs.forEach((tab, index) => tab.addEventListener('keydown', (event) => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    event.preventDefault();
+    const nextIndex = event.key === 'Home'
+      ? 0
+      : event.key === 'End'
+        ? conferenceTabs.length - 1
+        : (index + (event.key === 'ArrowRight' ? 1 : -1) + conferenceTabs.length) % conferenceTabs.length;
+    conferenceTabs[nextIndex]?.click();
+  }));
+
+  [...document.querySelectorAll('[data-ai-review-claim]'), ...document.querySelectorAll('[data-ai-thought-nav]')].forEach((button) => button.addEventListener('click', () => {
+    const claimId = button.dataset.aiReviewClaim ?? button.dataset.aiThoughtNav;
+    persistAIWorkspace(selectClaimForReview(state.aiWorkspace, claimId));
+    focusAIClaim(claimId);
   }));
 
   document.querySelectorAll('[data-ai-starter]').forEach((button) => button.addEventListener('click', async () => {
@@ -746,7 +887,12 @@ function attachListeners() {
   document.querySelector('form[data-ai-composer]')?.addEventListener('submit', async (event) => {
     event.preventDefault();
     try {
-      const message = new FormData(event.target).get('message');
+      const rawMessage = String(new FormData(event.target).get('message') ?? '').trim();
+      if (!rawMessage) throw new Error('Message text is required.');
+      const discussing = activeAIClaim(state.aiWorkspace?.discussingClaimId);
+      const message = discussing
+        ? `Regarding this clinical thought — “${discussing.statement}”\n\n${rawMessage}`
+        : rawMessage;
       await sendAIMessage(message);
     } catch (error) {
       failAI(error);
@@ -755,8 +901,40 @@ function attachListeners() {
 
   document.querySelectorAll('[data-ai-consultation]').forEach((button) => button.addEventListener('click', async () => {
     try {
-      const specialty = document.querySelector('[data-ai-specialty]')?.value ?? 'Sleep Medicine';
+      const specialty = button.closest('.ai-consult-menu')?.querySelector('[data-ai-specialty]')?.value ?? 'Sleep Medicine';
       await runAIConsultation(button.dataset.aiClaim, button.dataset.aiConsultation, specialty);
+    } catch (error) {
+      setAIConsultationRun(button.dataset.aiClaim, button.dataset.aiConsultation, 'failed', error?.message ?? 'Consultation failed.');
+    }
+  }));
+
+  document.querySelectorAll('[data-ai-discuss-claim]').forEach((button) => button.addEventListener('click', () => {
+    persistAIWorkspace({ ...state.aiWorkspace, discussingClaimId: button.dataset.aiDiscussClaim });
+    focusAI('#ai-prompt');
+  }));
+
+  document.querySelector('[data-ai-clear-discussion]')?.addEventListener('click', () => {
+    persistAIWorkspace({ ...state.aiWorkspace, discussingClaimId: null });
+    focusAI('#ai-prompt');
+  });
+
+  document.querySelectorAll('[data-ai-open-consultation]').forEach((button) => button.addEventListener('click', () => {
+    focusAIConsultation(button.dataset.aiOpenConsultation);
+  }));
+
+  document.querySelectorAll('[data-ai-accept-revision]').forEach((button) => button.addEventListener('click', async () => {
+    try {
+      await decideAIConsultationRevision(button.dataset.aiClaim, button.dataset.aiAcceptRevision, 'accept_revision');
+      focusAIClaim(button.dataset.aiClaim);
+    } catch (error) {
+      failAI(error);
+    }
+  }));
+
+  document.querySelectorAll('[data-ai-keep-wording]').forEach((button) => button.addEventListener('click', async () => {
+    try {
+      await decideAIConsultationRevision(button.dataset.aiClaim, button.dataset.aiKeepWording, 'keep_current');
+      focusAIConsultation(button.dataset.aiKeepWording);
     } catch (error) {
       failAI(error);
     }
@@ -858,7 +1036,7 @@ function attachListeners() {
         else state.aiWorkspace = markCarePlanProposalPromoted(state.aiWorkspace, draftId, result.promotion_event_id);
       }
       state.activeTab = 'care-plan';
-      state.carePlanMode = 'note';
+      state.carePlanHighlightedEntryId = `entry-${draftId}-1`;
       render();
       queueMicrotask(() => {
         const target = document.querySelector(`[data-care-plan-entry="entry-${draftId}-1"]`);
@@ -876,7 +1054,6 @@ function attachListeners() {
 
   document.querySelectorAll('[data-ai-open-care-plan]').forEach((button) => button.addEventListener('click', () => {
     state.activeTab = 'care-plan';
-    state.carePlanMode = 'note';
     render();
   }));
 
@@ -903,6 +1080,18 @@ function attachListeners() {
       failAI(error);
     }
   }));
+
+  document.querySelector('[data-risk-continue-ai]')?.addEventListener('click', async (event) => {
+    const question = event.currentTarget?.dataset.riskContinueAi;
+    state.activeTab = 'aleron-ai';
+    render();
+    try {
+      await sendAIMessage(question);
+      focusAI('#ai-prompt');
+    } catch (error) {
+      failAI(error);
+    }
+  });
 
   document.querySelectorAll('[data-model-pane]').forEach((button) => button.addEventListener('click', () => {
     state.selectedModelPane = button.dataset.modelPane;
@@ -1051,6 +1240,7 @@ function attachListeners() {
         await refreshFromBackend();
         state.reviewStarted = true;
       }
+      persistCurrentReviewReleaseSession();
       state.workflowStatus = result ? 'Backend review started.' : 'Fixture review started for this test session.';
       render();
     } catch (error) {
@@ -1085,13 +1275,8 @@ function attachListeners() {
       if (preview && !releasePackageIsCurrent(state.activeCase, preview)) {
         throw new Error('Backend release preview does not match the current case artifacts.');
       }
-      state.releasePackage = preview ?? {
-        schema_version: 'release_package.v1',
-        release_id: `fixture-preview-${state.activePatientId}`,
-        ...currentReleaseLinkage(state.activeCase),
-        release_state: 'release_package_draft',
-        patient_visible: false
-      };
+      state.releasePackage = preview ?? buildFixtureReleasePreview(state.activeCase, state.activePatientId);
+      persistCurrentReviewReleaseSession();
       state.workflowStatus = preview ? 'Backend release preview generated.' : 'Fixture release preview generated for this test session.';
       render();
     } catch (error) {
@@ -1109,17 +1294,56 @@ function attachListeners() {
       if (!releaseId) throw new Error('A backend release preview is required before authorization.');
       setBusyStatus('Recording physician attestation and authorization…');
       const authorizationId = `physician-attestation:${releaseId}:${Date.now()}`;
+      const authorizationEvidence = exactReleaseAuthorizationEvidence(state.releasePackage, authorizationId);
+      if (!authorizationEvidence) throw new Error('The current release preview cannot be bound to exact authorization evidence.');
       const authorized = await requestPhysicianAuthorization(state.activePatientId, {
         release_id: releaseId,
         signature_or_authorization_id: authorizationId,
         reason: 'Physician reviewed the case and release preview and authorized backend release.',
         signing_mode: 'physician_attestation_authorization'
       });
-      if (authorized && !releasePackageIsCurrent(state.activeCase, authorized)) {
-        throw new Error('Backend authorization does not match the current case artifacts.');
+      if (authorized && (authorized.schema_version !== 'release_package.v1'
+        || authorized.release_state !== 'authorized_not_released'
+        || authorized.patient_visible !== false
+        || authorized.signature_or_authorization_id !== authorizationId)) {
+        throw new Error('Backend authorization returned a contradictory lifecycle tuple.');
       }
-      state.releasePackage = authorized ?? { ...state.releasePackage, release_state: 'authorized_not_released', signature_or_authorization_id: authorizationId };
-      if (authorized) await refreshFromBackend();
+      const authorizedPackage = {
+        ...(authorized ?? state.releasePackage),
+        release_state: 'authorized_not_released',
+        patient_visible: false,
+        signature_or_authorization_id: authorizationId,
+        authorization_evidence: authorizationEvidence
+      };
+      if (authorized && (!releasePackageIsCurrent(state.activeCase, authorizedPackage)
+        || !releasePackageMatchesAuthorizationEvidence(authorizedPackage, authorizationEvidence))) {
+        throw new Error('Backend authorization does not match the exact physician-reviewed preview.');
+      }
+      state.releasePackage = authorizedPackage;
+      if (authorized) {
+        await refreshFromBackend();
+        const refreshedBackendPackage = state.activeCase?.release_preview ?? state.activeCase?.release_package;
+        if (!refreshedBackendPackage
+          || refreshedBackendPackage.schema_version !== 'release_package.v1'
+          || refreshedBackendPackage.release_state !== 'authorized_not_released'
+          || refreshedBackendPackage.patient_visible !== false
+          || refreshedBackendPackage.signature_or_authorization_id !== authorizationId) {
+          throw new Error('Refreshed backend state returned a contradictory lifecycle tuple.');
+        }
+        const normalizedRefreshedPackage = {
+          ...refreshedBackendPackage,
+          release_state: 'authorized_not_released',
+          patient_visible: false,
+          signature_or_authorization_id: authorizationId,
+          authorization_evidence: authorizationEvidence
+        };
+        if (!releasePackageIsCurrent(state.activeCase, normalizedRefreshedPackage)
+          || !releasePackageMatchesAuthorizationEvidence(normalizedRefreshedPackage, authorizationEvidence)) {
+          throw new Error('Refreshed backend state no longer matches the exact physician-reviewed preview.');
+        }
+        state.releasePackage = normalizedRefreshedPackage;
+      }
+      persistCurrentReviewReleaseSession();
       state.workflowStatus = authorized ? 'Staging physician attestation and authorization recorded by backend.' : 'Fixture attestation recorded for this test session.';
       render();
     } catch (error) {
@@ -1132,18 +1356,47 @@ function attachListeners() {
       requireAnalysisReady();
       requireReviewStarted();
       if (state.releasePackage?.release_state !== 'authorized_not_released') throw new Error('Backend authorization is required before release.');
+      const authorizationEvidence = state.releasePackage.authorization_evidence;
+      if (!releasePackageMatchesAuthorizationEvidence(state.releasePackage, authorizationEvidence)) {
+        throw new Error('The authorized package no longer matches its exact preview authorization evidence.');
+      }
       setBusyStatus('Requesting final backend release…');
+      const authorizedPackage = state.releasePackage;
       const released = await requestFinalRelease(state.activePatientId, {
-        release_id: releaseIdentifier(state.releasePackage),
+        release_id: releaseIdentifier(authorizedPackage),
         reason: 'Physician released the reviewed and authorized plan to the patient.'
       });
-      const validReleasedPackage = released?.schema_version === 'release_package.v1'
-        && released?.release_state === 'released_to_patient'
-        && released?.patient_visible === true
-        && Boolean(releaseIdentifier(released))
-        && releasePackageIsCurrent(state.activeCase, released);
-      if (released && !validReleasedPackage) throw new Error('Backend final release did not return a valid released package.');
-      state.releasePackage = released ?? { ...state.releasePackage, release_state: 'released_to_patient', patient_visible: true };
+      const releasedAt = released ? released.released_at : new Date().toISOString();
+      if (released && (released.schema_version !== 'release_package.v1'
+        || released.release_state !== 'released_to_patient'
+        || released.patient_visible !== true
+        || released.signature_or_authorization_id !== authorizationEvidence.authorization_id
+        || released.preview_hash !== authorizedPackage.preview_hash
+        || released.release_id !== authorizedPackage.release_id)) {
+        throw new Error('Backend final release returned a contradictory lifecycle tuple.');
+      }
+      const releaseReceipt = createPatientReleaseReceipt(authorizedPackage, releasedAt);
+      if (!releaseReceipt) throw new Error('Final release did not produce a valid release-transition timestamp and receipt.');
+      const releasedPackage = {
+        ...(released ?? authorizedPackage),
+        release_state: 'released_to_patient',
+        patient_visible: true,
+        released_at: releasedAt,
+        signature_or_authorization_id: authorizationEvidence.authorization_id,
+        authorization_evidence: authorizationEvidence,
+        release_receipt: releaseReceipt
+      };
+      if (released?.release_receipt && !patientReleaseReceiptIsValid({
+        ...releasedPackage,
+        release_receipt: released.release_receipt
+      })) {
+        throw new Error('Backend final release returned a contradictory release receipt.');
+      }
+      const validReleasedPackage = releasePackageIsCurrent(state.activeCase, releasedPackage)
+        && releasePackageMatchesAuthorizationEvidence(releasedPackage, authorizationEvidence)
+        && patientReleaseReceiptIsValid(releasedPackage);
+      if (!validReleasedPackage) throw new Error('Backend final release did not return the exact authorized package.');
+      state.releasePackage = releasedPackage;
       if (released) {
         state.activeCase.workflow_projection = {
           ...(state.activeCase.workflow_projection ?? {}),
@@ -1160,6 +1413,7 @@ function attachListeners() {
           if (refreshError?.status !== 404) throw refreshError;
         }
       }
+      persistCurrentReviewReleaseSession();
       state.workflowStatus = released ? 'Backend released package to patient.' : 'Fixture release recorded for this test session.';
       render();
     } catch (error) {
@@ -1233,7 +1487,9 @@ function attachListeners() {
         return;
       }
       const current = carePlanStore.getState();
-      applyCarePlanResult(carePlanStore.authorizeOrders({ actor: carePlanPhysician, draft_revision: current.server_revision, payload_hash: current.order_set_hash, idempotency_key: `authorize-${current.server_revision}`, attested, interaction_nonce: `orders-${Date.now()}` }));
+      const pending = current.pending_order_set;
+      if (!pending) throw new Error('The locked-note pending order set is required for authorization.');
+      applyCarePlanResult(carePlanStore.authorizeOrders({ actor: carePlanPhysician, pending_snapshot_id: pending.snapshot_id, pending_snapshot_revision: pending.snapshot_revision, payload_hash: pending.payload_hash, idempotency_key: `authorize-${pending.snapshot_id}-${pending.snapshot_revision}`, attested, interaction_nonce: `orders-${Date.now()}` }));
     } catch (error) { failCarePlan(error, 'Order authorization failed.'); }
   });
   document.querySelector('[data-care-plan-begin-lock]')?.addEventListener('click', async () => {
@@ -1275,17 +1531,6 @@ function attachListeners() {
     state.carePlanPendingEditMode = false;
     render();
   });
-  document.querySelector('[data-care-plan-pending-authorize]')?.addEventListener('click', async () => {
-    const pending = state.carePlanState.pending_order_set;
-    const attested = document.querySelector('[data-care-plan-pending-attestation]')?.checked === true;
-    try {
-      if (!attested) throw new Error('Physician attestation is required for the exact pending order set.');
-      if (carePlanBackendMode()) state.carePlanState = await carePlanClient.authorize(state.carePlanState, { attested, pending });
-      else applyCarePlanResult(carePlanStore.authorizeOrders({ actor: carePlanPhysician, draft_revision: state.carePlanState.server_revision, payload_hash: pending.payload_hash, pending_snapshot_id: pending.snapshot_id, pending_snapshot_revision: pending.snapshot_revision, idempotency_key: `pending-authorize-${pending.snapshot_revision}`, attested, interaction_nonce: `pending-authorize-${Date.now()}` }));
-      state.carePlanPendingEditMode = false;
-      if (carePlanBackendMode()) { state.carePlanError = null; render(); }
-    } catch (error) { failCarePlan(error, 'Pending order authorization failed.'); }
-  });
   document.querySelector('[data-care-plan-pending-revise]')?.addEventListener('click', async () => {
     const pending = state.carePlanState.pending_order_set;
     const orderIntentId = document.querySelector('[data-care-plan-pending-order]')?.value;
@@ -1319,6 +1564,9 @@ function attachListeners() {
   document.querySelector('[data-care-plan-reset]')?.addEventListener('click', () => {
     carePlanPendingChanges.clear();
     carePlanStore.reset();
+    if (usesReviewReleaseSessionPersistence()) reviewReleaseSessionRepository().clear(state.activeCase);
+    state.reviewStarted = false;
+    state.releasePackage = null;
     state.carePlanState = carePlanStore.getState();
     state.carePlanError = null;
     render();
@@ -1367,7 +1615,6 @@ async function boot() {
     if (deepLinkPatientId && state.activePatientId !== deepLinkPatientId) {
       await loadCase(deepLinkPatientId);
     }
-    inferReviewStarted();
     render();
   } catch (error) {
     const accessFailure = state.source !== 'fixture' && /401|403|authorization|session/i.test(error.message);

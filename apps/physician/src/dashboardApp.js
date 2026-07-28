@@ -1,11 +1,18 @@
-import { displayValue } from './dashboardAdapter.js?v=physician-ai-care-plan-v4';
-import { formatTrendLine } from './wearableSummary.js?v=physician-ai-care-plan-v4';
-import { getOverrideTaxonomy } from './apiClient.js?v=physician-ai-care-plan-v4';
-import { recommendationTraceHTML, releasePreviewHTML } from './clinicalTrace.js?v=physician-ai-care-plan-v4';
-import { riskSpaceView } from './riskSpaceView.js?v=physician-ai-care-plan-v4';
-import { screeningView } from './screeningView.js?v=physician-ai-care-plan-v4';
-import { aiColleagueView } from './aiColleagueView.js?v=physician-ai-care-plan-v4';
-import { syntheticCarePlanView } from './carePlanView.js?v=physician-ai-care-plan-v4';
+import {
+  coherentPhysicianCasePatientId,
+  currentReceiptBackedReleasePackageIsValid,
+  displayValue,
+  physicianReleasePackageFamily,
+  releasePackageTransitionIsMonotonic,
+  releasePreviewAliasesAreConsistent
+} from './dashboardAdapter.js?v=physician-ai-care-plan-v7';
+import { formatTrendLine } from './wearableSummary.js?v=physician-ai-care-plan-v7';
+import { getOverrideTaxonomy } from './apiClient.js?v=physician-ai-care-plan-v7';
+import { recommendationTraceHTML, releasePreviewHTML } from './clinicalTrace.js?v=physician-ai-care-plan-v7';
+import { riskSpaceView } from './riskSpaceView.js?v=physician-ai-care-plan-v7';
+import { screeningView } from './screeningView.js?v=physician-ai-care-plan-v7';
+import { aiColleagueView } from './aiColleagueView.js?v=physician-ai-care-plan-v7';
+import { syntheticCarePlanView } from './carePlanView.js?v=physician-ai-care-plan-v7';
 
 // Vitality is out of scope for V1 (Jason, 2026-07-24). The tab is removed from
 // navigation so the surface is unreachable; vitalityView() and its adapter path
@@ -88,14 +95,32 @@ function sparklineSvg(values) {
   return `<svg class="wearable-spark" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" aria-hidden="true"><polyline fill="none" stroke="currentColor" stroke-width="1.5" points="${pts}"/></svg>`;
 }
 
+function measuredValue(row) {
+  const display = String(displayValue(row.value, row.units, row.state ?? row.status));
+  const unit = String(row.units ?? '');
+  const numeric = (typeof row.value === 'number' && Number.isFinite(row.value))
+    || (typeof row.value === 'string' && row.value.trim() !== '' && Number.isFinite(Number(row.value)));
+  if (!numeric || !unit) return { html: esc(display), state: true };
+
+  const suffix = unit === '%' || unit === '％' ? unit : ` ${unit}`;
+  if (!display.endsWith(suffix)) return { html: esc(display), state: true };
+  const value = display.slice(0, -suffix.length);
+  const separator = suffix.slice(0, suffix.length - unit.length);
+  return {
+    html: `<span class="measure-value">${esc(value)}</span>${esc(separator)}<span class="measure-unit">${esc(unit)}</span>`,
+    state: false,
+  };
+}
+
 function dataRows(rows, { wearables = false } = {}) {
   return rows.map((row) => {
-    const measure = esc(displayValue(row.value, row.units, row.state ?? row.status));
+    const measure = measuredValue(row);
+    const measureClass = `measure${measure.state ? ' measure-state' : ''}`;
     if (!wearables) {
       return `
     <div class="data-row">
       <div><strong>${esc(row.label ?? row.key)}</strong><small class="provenance">${esc(provenanceText(row.provenance))}</small></div>
-      <div class="measure">${measure}</div>
+      <div class="${measureClass}">${measure.html}</div>
     </div>`;
     }
     const state = row.trend_state || 'snapshot_only';
@@ -108,9 +133,9 @@ function dataRows(rows, { wearables = false } = {}) {
         <small class="provenance">${esc(provenanceText(row.provenance))}</small>
         ${trend}
       </div>
-      <div class="measure wearable-measure">
+      <div class="wearable-measure">
         ${spark}
-        <span>${measure}</span>
+        <div class="${measureClass}">${measure.html}</div>
       </div>
     </div>`;
   }).join('');
@@ -147,11 +172,13 @@ function patientDataView(model) {
   const groups = model.patientData.groups.map((group) => {
     const rows = group.id === 'context' ? [...group.measurements, ...contextRows(model)] : group.measurements;
     if (!rows.length) return '';
-    const extra = group.id === 'wearables' ? `${instrumentNote}${coverageLine}` : '';
-    return `<section class="data-group" data-clinical-group="${esc(group.id)}"><h2>${esc(group.label)}</h2>${extra}<div class="data-rows">${dataRows(rows, { wearables: group.id === 'wearables' })}</div></section>`;
+    const extra = group.id === 'wearables' && (instrumentNote || coverageLine)
+      ? `<div class="data-group-notes">${instrumentNote}${coverageLine}</div>`
+      : '';
+    return `<section class="data-group" data-clinical-group="${esc(group.id)}"><div class="data-group-entry"><h2>${esc(group.label)}</h2>${extra}</div><div class="data-rows">${dataRows(rows, { wearables: group.id === 'wearables' })}</div></section>`;
   }).join('');
   const uncategorized = model.patientData.uncategorized.length
-    ? `<section class="data-group" data-clinical-group="uncategorized"><h2>Other / Uncategorized</h2><div class="data-rows">${dataRows(model.patientData.uncategorized)}</div></section>`
+    ? `<section class="data-group" data-clinical-group="uncategorized"><div class="data-group-entry"><h2>Other / Uncategorized</h2></div><div class="data-rows">${dataRows(model.patientData.uncategorized)}</div></section>`
     : '';
   const filledGroups = groups + uncategorized;
   const orders = model.patientData.orders.map((order) => `
@@ -162,13 +189,17 @@ function patientDataView(model) {
   const summary = model.patientData.summary;
   const summaryHtml = summary ? `<section class="input-summary"><span class="section-label">Input readiness</span><div class="summary-grid"><div><span>Completeness</span><strong>${esc(summary.completeness ?? 'Not emitted')}</strong></div><div><span>Recency</span><strong>${esc(summary.recency ?? 'Not emitted')}</strong></div><div><span>Provenance</span><strong>${esc(summary.provenance ?? 'Not emitted')}</strong></div><div><span>Missingness</span><strong>${esc(summary.missingness ?? 'None emitted')}</strong></div></div>${Array.isArray(summary.abnormal_findings) && summary.abnormal_findings.length ? `<p><strong>Abnormal findings</strong> ${esc(summary.abnormal_findings.join(' · '))}</p>` : ''}</section>` : `<section class="input-summary integrity-error"><strong>Input readiness summary not emitted by backend.</strong></section>`;
   return `
-    <header class="screen-head"><div><h1>Patient data</h1><p>Identity, signals, and the labs the models read from, governed by packet schema and wearable history requirements.</p></div></header>
-    ${summaryHtml}
-    <section class="instrument-panel patient-data-panel">
-      <div class="patient-line"><strong>${esc(model.patient.name)}</strong>${model.patient.code && model.patient.code !== 'Code missing' ? `<span>${esc(model.patient.code)}</span>` : ''}<span>${esc(displayValue(model.patient.age, 'years'))}</span><span>${esc(model.patient.sex ?? 'Sex missing')}</span>${model.patient.phenotype ? `<span>${esc(model.patient.phenotype)}</span>` : ''}</div>
-      <div class="clinical-groups">${filledGroups || empty('Not measured or insufficient input.')}</div>
-    </section>
-    <section class="instrument-panel"><div class="panel-head"><h2>Orders</h2><span>Backend order state</span></div>${orders || empty('No lab orders on this synthetic case')}</section>`;
+    <section class="screen-frame patient-data-screen">
+      <header class="screen-head"><div><h1>Patient data</h1><p>Identity, signals, and the labs the models read from, governed by packet schema and wearable history requirements.</p></div></header>
+      <div class="screen-body">
+        ${summaryHtml}
+        <section class="instrument-panel patient-data-panel">
+          <div class="patient-line"><strong>${esc(model.patient.name)}</strong>${model.patient.code && model.patient.code !== 'Code missing' ? `<span>${esc(model.patient.code)}</span>` : ''}<span>${esc(displayValue(model.patient.age, 'years'))}</span><span>${esc(model.patient.sex ?? 'Sex missing')}</span>${model.patient.phenotype ? `<span>${esc(model.patient.phenotype)}</span>` : ''}</div>
+          <div class="clinical-groups">${filledGroups || empty('Not measured or insufficient input.')}</div>
+        </section>
+        <section class="instrument-panel"><div class="panel-head"><h2>Orders</h2><span>Backend order state</span></div>${orders || empty('No lab orders on this synthetic case')}</section>
+      </div>
+    </section>`;
 }
 
 function riskView(model, state) {
@@ -682,16 +713,73 @@ function decisionForm(action, taxonomy, disabled) {
   </form>`;
 }
 
+function currentReleaseTrust(workflow, preview) {
+  if (!preview) return { blocked: workflow.release.authorizationBlocked, blockers: workflow.release.trustBlockers };
+  const boundary = preview.patient_safe_boundary ?? preview.clinical_patient_boundary;
+  const checks = [
+    [preview.required_item_dispositions_complete === true, 'required-item dispositions'],
+    [Boolean(preview.provenance && typeof preview.provenance === 'object'), 'provenance'],
+    [Boolean((boundary?.projection === 'patient_safe_only' && boundary?.raw_internal_artifacts === false)
+      || (boundary?.patient_safe === true && (boundary.visible_content ?? []).includes('doctor_message') && (boundary.visible_content ?? []).includes('visible_actions'))), 'patient-safe boundary'],
+    [['packet_id', 'packet_hash', 'source_engine_run_id', 'source_action_map_state_id', 'source_plan_id'].every((key) => Boolean(preview[key] ?? preview.source_lineage?.[key])), 'lineage']
+  ];
+  const blockers = checks.filter(([complete]) => !complete).map(([, label]) => label);
+  return { blocked: blockers.length > 0, blockers };
+}
+
+function casePatientId(caseBundle) {
+  return coherentPhysicianCasePatientId(caseBundle) ?? '';
+}
+
+function releaseRenderContext(model, state) {
+  const activeFamily = physicianReleasePackageFamily(state.activeCase);
+  const rawFamily = physicianReleasePackageFamily(model.raw);
+  const modelPackage = model.workflow?.releasePackage ?? null;
+  const localPackage = state.releasePackage ?? null;
+  const baselinePackages = [activeFamily.releasePackage, rawFamily.releasePackage, modelPackage].filter(Boolean);
+  const rawFamiliesAreCoherent = activeFamily.coherent && rawFamily.coherent;
+  const baselinePackagesAreExactDuplicates = baselinePackages.every((value) => (
+    releasePreviewAliasesAreConsistent(state.activeCase, value)
+    && releasePreviewAliasesAreConsistent(model.raw, value)
+    && releasePackageTransitionIsMonotonic(baselinePackages[0], value)
+    && releasePackageTransitionIsMonotonic(value, baselinePackages[0])
+  ));
+  const localPackageIsCoherent = !localPackage || (
+    releasePreviewAliasesAreConsistent(state.activeCase, localPackage)
+    && releasePreviewAliasesAreConsistent(model.raw, localPackage)
+    && (!baselinePackages.length || releasePackageTransitionIsMonotonic(baselinePackages[0], localPackage))
+  );
+  const releasePackage = localPackage ?? baselinePackages[0] ?? null;
+  const patientIds = [
+    state.activePatientId,
+    casePatientId(state.activeCase),
+    model.patient?.id,
+    casePatientId(model.raw),
+    releasePackage?.patient_id
+  ].map((value) => typeof value === 'string' ? value.trim() : '');
+  const identitiesAgree = patientIds.every(Boolean) && new Set(patientIds).size === 1;
+  const packageIsCoherentAndCurrent = rawFamiliesAreCoherent
+    && baselinePackagesAreExactDuplicates
+    && localPackageIsCoherent
+    && identitiesAgree
+    && releasePreviewAliasesAreConsistent(state.activeCase, releasePackage)
+    && releasePreviewAliasesAreConsistent(model.raw, releasePackage);
+  const released = packageIsCoherentAndCurrent
+    && currentReceiptBackedReleasePackageIsValid(state.activeCase, releasePackage)
+    && currentReceiptBackedReleasePackageIsValid(model.raw, releasePackage);
+  return { releasePackage, packageIsCoherentAndCurrent, released };
+}
+
 function releaseRail(model, state) {
   const workflow = model.workflow;
-  const preview = state.releasePackage ?? workflow.releasePackage;
-  const released = workflow.released;
-  const authorized = !released && workflow.releaseState === 'authorized_not_released';
-  const previewReady = !released && workflow.release.preview_ready === true && Boolean(preview);
+  const { releasePackage: preview, packageIsCoherentAndCurrent, released } = releaseRenderContext(model, state);
+  const authorized = !released && packageIsCoherentAndCurrent && preview.release_state === 'authorized_not_released';
+  const previewReady = !released && packageIsCoherentAndCurrent;
   const reviewReady = model.analysis.readyForReview && state.reviewStarted;
-  const trustBlocked = workflow.release.authorizationBlocked;
+  const trust = currentReleaseTrust(workflow, preview);
+  const trustBlocked = trust.blocked;
   if (released) return `<aside class="release-rail"><section class="rail-card release-closure"><span class="section-label">Release complete</span><h2>Released to patient</h2><p>Patient visible · read only</p><small>${esc(workflow.release.released_at ?? preview?.released_at ?? 'Release timestamp not emitted')}</small><details class="released-preview"><summary>View exact released preview</summary>${releasePreviewHTML(preview)}</details>${state.workflowStatus ? `<p class="status-line">${esc(state.workflowStatus)}</p>` : ''}</section></aside>`;
-  const blockerText = trustBlocked ? `Authorization blocked: ${workflow.release.trustBlockers.join(', ')} not emitted.` : '';
+  const blockerText = trustBlocked ? `Authorization blocked: ${trust.blockers.join(', ')} not emitted.` : '';
   return `<aside class="release-rail"><section class="rail-card">
     <span class="section-label">Preview · attest · release</span>
     <h2>${trustBlocked ? 'Authorization blocked' : 'Release evidence'}</h2>
@@ -715,8 +803,8 @@ function modelVersionSummary(model) {
   return `<details class="model-version-line" data-model-versions><summary>Model lineage</summary><p>${esc(lines.join(' · '))}</p></details>`;
 }
 
-function isCaseReleased(model) {
-  return model.workflow?.released === true;
+function isCaseReleased(model, state) {
+  return releaseRenderContext(model, state).released;
 }
 
 function analysisGate(model, state) {
@@ -898,24 +986,73 @@ function journalTimestamp(value) {
   });
 }
 
-function journalView(model) {
+function normalizeJournalLabel(value) {
+  return typeof value === 'string'
+    ? value.trim().toLowerCase().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ')
+    : '';
+}
+
+const JOURNAL_NONTERMINAL_EVENTS = new Set([
+  'patient packet validated',
+  'engine run completed',
+  'physician review pending',
+  'analysis completed',
+  'review completed',
+  'evidence validation completed',
+  'review started',
+  'audit recorded'
+]);
+
+const JOURNAL_NONTERMINAL_STATES = new Set([
+  'results received',
+  'patient packet ready',
+  'engine run queued',
+  'engine run complete',
+  'physician review pending',
+  'physician reviewing',
+  'analysis completed',
+  'review completed',
+  'evidence validation completed',
+  'authorized not released',
+  'pending',
+  'reviewing'
+]);
+
+function journalLabelsAreKnownNonterminal(eventName, before, after) {
+  return JOURNAL_NONTERMINAL_EVENTS.has(normalizeJournalLabel(eventName))
+    && JOURNAL_NONTERMINAL_STATES.has(normalizeJournalLabel(before))
+    && JOURNAL_NONTERMINAL_STATES.has(normalizeJournalLabel(after));
+}
+
+function journalView(model, state) {
   const integrity = model.workflow.auditIntegrity;
   const integrityErrors = Array.isArray(integrity?.errors) ? integrity.errors : [];
+  const terminalChronologyIsVerified = isCaseReleased(model, state);
   const renderedRows = model.journal.map((event) => {
     const timestamp = event.timestamp ?? event.timestamp_utc ?? event.created_at;
     const before = event.previous_state ?? event.state_before;
     const after = event.next_state ?? event.state_after;
     const eventId = event.event_id ?? event.id;
+    const eventName = event.event_name ?? event.event_type ?? event.event;
+    const labelsCanRender = terminalChronologyIsVerified || journalLabelsAreKnownNonterminal(eventName, before, after);
     const valid = timestamp && before && after && eventId && before !== 'unknown' && after !== 'unknown';
-    if (!valid) return `<article class="journal-entry journal-entry-error"><div class="timeline-node"></div><div><span class="journal-hazard-tile">Audit integrity error</span><h2>${esc(humanizeEventName(event.event_name ?? event.event_type ?? event.event))}</h2><p>Required chronology fields are missing.</p><small>${esc(eventId ?? 'Event ID missing')}</small></div></article>`;
-    return `<article class="journal-entry"><div class="timeline-node"></div><div><span>${esc(journalTimestamp(timestamp))}</span><h2>${esc(humanizeEventName(event.event_name ?? event.event_type ?? event.event))}</h2><p>${esc(stateText(before))} → ${esc(stateText(after))}</p><details class="journal-meta"><summary>Audit details</summary><small>${esc(journalActor(event))} · ${esc(journalRole(event))} · ${esc(eventId)}</small></details></div></article>`;
+    const title = labelsCanRender
+      ? `<h2>${esc(humanizeEventName(eventName))}</h2>`
+      : '<h2>Journal labels withheld pending current verification</h2>';
+    const chronology = labelsCanRender
+      ? `<p class="journal-row">${esc(stateText(before))} → ${esc(stateText(after))}</p>`
+      : '<p class="journal-row">Raw chronology labels are not shown without current receipt authority.</p>';
+    const metadata = `<details class="journal-meta journal-row"><summary>Audit details</summary><small>${esc(journalActor(event))} · ${esc(journalRole(event))} · ${esc(eventId ?? 'Event ID missing')}</small></details>`;
+    const lead = `<div class="journal-entry-entry">${!valid ? '<span class="journal-hazard-tile">Audit integrity error</span>' : ''}${timestamp ? `<span>${esc(journalTimestamp(timestamp))}</span>` : ''}${title}</div>`;
+    const rows = `<div class="journal-entry-rows">${chronology}${!valid ? '<p class="journal-row journal-row-error">Required chronology fields are missing.</p>' : ''}${metadata}</div>`;
+    return `<article class="journal-entry${valid ? '' : ' journal-entry-error'}"><div class="journal-marker"><div class="timeline-node"></div></div><div class="journal-entry-content">${lead}${rows}</div></article>`;
   });
   const recentLimit = 18;
   const recentRows = renderedRows.slice(-recentLimit).reverse().join('');
   const olderRows = renderedRows.slice(0, -recentLimit).reverse().join('');
   const olderCount = Math.max(0, renderedRows.length - recentLimit);
   const olderDisclosure = olderCount
-    ? `<details class="journal-archive"><summary><span>Earlier events</span><small>${olderCount} events</small></summary><section class="journal-list">${olderRows}</section></details>`
+    ? `<details class="journal-archive"><summary><span>Earlier events</span><small>${olderCount} events</small></summary><section class="journal-list journal-archive-list">${olderRows}</section></details>`
     : '';
   const errorSummary = integrityErrors.length
     ? `${integrityErrors.length} validation failures require review.`
@@ -923,31 +1060,89 @@ function journalView(model) {
   const errorDisclosure = integrityErrors.length
     ? `<details><summary>Review validation details</summary><ul>${integrityErrors.map((error) => `<li>${esc(error)}</li>`).join('')}</ul></details>`
     : '';
-  const banner = integrity?.status === 'pass' ? '' : `<section class="audit-integrity boundary-banner signal-hazard"><h2>Audit integrity error</h2><p>${esc(errorSummary)}</p>${errorDisclosure}</section>`;
-  return `<header class="screen-head"><div><h1>Journal</h1><p>Audit trail, most recent first.</p></div></header>${banner}<section class="journal-list">${recentRows || empty('No journal events recorded.')}</section>${olderDisclosure}`;
+  const banner = integrity?.status === 'pass' ? '' : `<section class="audit-integrity boundary-banner signal-hazard screen-state screen-state-error"><h2>Audit integrity error</h2><p>${esc(errorSummary)}</p>${errorDisclosure}</section>`;
+  const emptyJournal = '<div class="empty-state screen-state screen-state-empty">No journal events recorded.</div>';
+  return `<section class="screen-frame stable-screen journal-screen"><header class="screen-head"><div><h1>Journal</h1><p>Audit trail, most recent first.</p></div></header><div class="screen-body journal-body">${banner}<section class="journal-list">${recentRows || emptyJournal}</section>${olderDisclosure}</div></section>`;
 }
 
 function aiView(state) {
   return aiColleagueView(state.aiWorkspace);
 }
 
+function canonicalCarePlanReview(model, state) {
+  const taxonomy = getOverrideTaxonomy();
+  const items = [
+    ...model.carePlan.required.map((item) => ({ ...item, planKind: 'problem' })),
+    ...model.carePlan.actions.map((item) => ({ ...item, planKind: item.kind === 'diagnostic' ? 'order' : 'action' }))
+  ];
+  const resolved = items.filter((item) => item.persisted_override_id || ['accepted', 'modified', 'deferred', 'rejected'].includes(item.physician_decision));
+  const unresolved = items.filter((item) => !resolved.includes(item));
+  const selected = items.find((item) => item.id === state.selectedPlanItemId) ?? unresolved[0] ?? null;
+  const caseReleased = isCaseReleased(model, state);
+  const reviewActive = model.analysis.readyForReview && state.reviewStarted && !caseReleased;
+  const row = (item) => `<button type="button" class="cp-decision-row ${selected?.id === item.id ? 'selected' : ''}" data-plan-item="${esc(item.id)}" aria-pressed="${selected?.id === item.id}"><span>${esc(carePlanDisplayTitle(item))}</span><small>${esc(item.reason ?? item.why_it_matters ?? item.why_now ?? 'Clinical rationale not emitted.')}</small></button>`;
+  const currentPromotionEventIds = new Set((state.aiWorkspace?.threads ?? [])
+    .flatMap((thread) => thread.drafts ?? [])
+    .filter((draft) => draft.promotion_state === 'promoted' && draft.promotion_event_id)
+    .map((draft) => draft.promotion_event_id));
+  const promotedChanges = (state.carePlanState?.entries ?? [])
+    .filter((entry) => (entry.source_promotion_event_ids ?? []).some((eventId) => currentPromotionEventIds.has(eventId)))
+    .map((entry) => ({
+      id: entry.entry_id,
+      title: entry.problem?.proposed_label?.value ?? entry.entry_id,
+      physician_decision: 'ai_promoted',
+    }));
+  const changes = [...resolved, ...model.carePlan.additions, ...promotedChanges];
+  const selectedReview = selected ? `<article class="cp-selected-decision"><span>Selected ${esc(selected.planKind)}</span><h3>${esc(carePlanDisplayTitle(selected))}</h3><p>${esc(selected.reason ?? selected.why_it_matters ?? selected.why_now ?? 'Clinical rationale not emitted.')}</p>${reviewActive ? decisionForm(selected, taxonomy, false) : '<small>Start review to expose structured decision controls.</small>'}</article>` : '';
+  const actionSpaceCount = model.actionMap.items.length;
+  const bridgeKeys = selected ? [selected.id, selected.candidate_id, selected.library_item_id, selected.action_library_item_id].filter(Boolean) : [];
+  const bridgeItem = bridgeKeys.length ? model.actionMap.items.find((item) => [item.id, item.libraryItemId].filter(Boolean).some((key) => bridgeKeys.includes(key))) : null;
+  const actionSpaceBridge = actionSpaceCount ? `<section class="plan-space-bridge"><div><h3>Action Space</h3><p>${actionSpaceCount} governed candidate${actionSpaceCount === 1 ? '' : 's'} available for comparison.</p></div><button type="button" class="secondary" data-open-action-space="${esc(bridgeItem?.id ?? '')}">Open Action Space</button></section>` : '';
+  const addReasons = decisionReasonOptionsHTML('add_problem', null, taxonomy);
+  const physicianAdd = `<section class="cp-physician-add"><h3>Add physician problem or order</h3><form data-add-action><label>Type<select name="action" data-decision-action ${reviewActive ? '' : 'disabled'}><option value="add_problem">Problem</option><option value="add_order">Order intent</option></select></label><label>Item<input name="value" placeholder="Physician-authored item" ${reviewActive ? '' : 'disabled'}></label><label>Reason<select name="reason_code" data-decision-reason ${reviewActive ? '' : 'disabled'}>${addReasons}</select></label><label>Rationale<input name="reason" placeholder="Required for audit" ${reviewActive ? '' : 'disabled'}></label><button type="submit" ${reviewActive ? '' : 'disabled'}>Add to Care Plan review</button></form></section>`;
+  const html = `<section class="cp-change-review" aria-label="Changes and unresolved clinical decisions">
+    <div class="cp-section-head"><div><span>Review first</span><h2>Changes and unresolved decisions</h2><p>${changes.length} changed · ${unresolved.length} unresolved</p></div>${state.reviewStarted ? '<strong>Review active</strong>' : ''}</div>
+    ${analysisGate(model, state)}
+    ${state.workflowStatus ? `<p class="status-line">${esc(state.workflowStatus)}</p>` : ''}${state.workflowError ? `<p class="error-line">${esc(state.workflowError)}</p>` : ''}
+    <div class="cp-change-grid"><section><h3>Changes since prior plan</h3>${changes.length ? changes.map((item) => `<div class="cp-change-row"><strong>${esc(carePlanDisplayTitle(item))}</strong><small>${esc(stateText(item.physician_decision ?? item.action ?? 'changed'))}</small></div>`).join('') : '<p class="truth-empty">No staged changes.</p>'}</section><section><h3>Unresolved clinical decisions</h3>${unresolved.length ? unresolved.map(row).join('') : '<p class="truth-empty">No unresolved decisions.</p>'}</section>${selectedReview}</div>${actionSpaceBridge}${physicianAdd}
+  </section>`;
+  return { html, unresolvedCount: unresolved.length };
+}
+
+function stableSurface(markup, screenClass, bodyClass) {
+  const headerEnd = markup.indexOf('</header>');
+  if (headerEnd < 0) return markup;
+  const bodyStart = headerEnd + '</header>'.length;
+  return `<section class="screen-frame stable-screen ${screenClass}">${markup.slice(0, bodyStart)}<div class="screen-body ${bodyClass}">${markup.slice(bodyStart)}</div></section>`;
+}
+
+function stableNestedSurface(markup, screenClass, bodyClass, rootClass) {
+  const match = markup.match(new RegExp(`^<div class="${rootClass}"([^>]*)>([\\s\\S]*)<\\/div>$`));
+  if (!match) return markup;
+  const [, rootAttributes, innerMarkup] = match;
+  const headerEnd = innerMarkup.indexOf('</header>');
+  if (headerEnd < 0) return markup;
+  const bodyStart = headerEnd + '</header>'.length;
+  return `<section class="screen-frame stable-screen ${screenClass}">${innerMarkup.slice(0, bodyStart)}<div class="screen-body ${bodyClass} ${rootClass}"${rootAttributes}>${innerMarkup.slice(bodyStart)}</div></section>`;
+}
+
 function activeView(model, state) {
-  if (state.activeTab === 'risk') return modelsView(model, state);
+  if (state.activeTab === 'risk') return stableSurface(modelsView(model, state), 'risk-screen', 'risk-body');
   if (state.activeTab === 'screening') return screeningView(state);
   // 'vitality' is deliberately unrouted for V1; a stale persisted tab value falls
   // through to patient data rather than rendering an unreachable surface.
   if (state.activeTab === 'care-plan') {
     const noteAvailable = state.source === 'fixture' || model.analysis.readyForReview;
     if (!noteAvailable || !state.carePlanState) return carePlanView(model, state);
-    const mode = state.carePlanMode === 'note' ? 'note' : 'plan';
-    const switcher = `<nav class="cp-mode-switch" aria-label="Care plan workspace" role="tablist"><button type="button" role="tab" aria-selected="${mode === 'plan'}" class="${mode === 'plan' ? 'on' : ''}" data-care-plan-mode="plan">Plan review</button><button type="button" role="tab" aria-selected="${mode === 'note'}" class="${mode === 'note' ? 'on' : ''}" data-care-plan-mode="note">Draft note</button></nav>`;
-    const view = mode === 'note'
-      ? syntheticCarePlanView({ ...state.carePlanState, ui_error: state.carePlanError, ui_lock_confirmation_pending: state.carePlanLockConfirmationPending, ui_pending_edit_mode: state.carePlanPendingEditMode })
-      : carePlanView(model, state);
-    return `${switcher}${view}`;
+    const review = canonicalCarePlanReview(model, state);
+    const carePlan = syntheticCarePlanView(
+      { ...state.carePlanState, ui_error: state.carePlanError, ui_lock_confirmation_pending: state.carePlanLockConfirmationPending, ui_pending_edit_mode: state.carePlanPendingEditMode },
+      { changeReviewHtml: review.html, unresolvedDecisionCount: review.unresolvedCount, highlightedEntryId: state.carePlanHighlightedEntryId, releaseHtml: releaseRail(model, state), patientDisplayName: model.patient.name }
+    );
+    return stableNestedSurface(carePlan, 'care-plan-screen', 'care-plan-body', 'cp-workflow');
   }
-  if (state.activeTab === 'journal') return journalView(model);
-  if (state.activeTab === 'aleron-ai') return aiView(state);
+  if (state.activeTab === 'journal') return journalView(model, state);
+  if (state.activeTab === 'aleron-ai') return stableSurface(aiView(state), 'ai-screen', 'ai-body');
   return patientDataView(model);
 }
 
@@ -955,7 +1150,12 @@ export function queueOptionLabel(task) {
   const name = String(task?.display_name ?? '').trim();
   const patientId = String(task?.patient_id ?? '').trim();
   const shortId = patientId ? patientId.replace(/^member_/, '').slice(0, 8) : '';
-  const lifecycle = String(task?.lifecycle_state ?? '').trim().replaceAll('_', ' ');
+  const lifecycle = ({
+    analysis_pending: 'Analysis pending',
+    analysis_stale: 'Analysis stale',
+    physician_review_pending: 'Review pending',
+    physician_review_started: 'Review started'
+  })[String(task?.lifecycle_state ?? '').trim()] ?? '';
   const when = String(task?.last_event_at ?? '').trim();
   const day = when ? when.slice(0, 10) : '';
   const base = name || patientId || 'Unknown patient';
@@ -984,9 +1184,9 @@ export function renderEmptyStaging(app) {
 export function renderDashboard(app, state, model) {
   const initials = patientInitials(model.patient.name);
   const options = state.queue.map((task) => `<option value="${esc(task.patient_id)}" ${task.patient_id === state.activePatientId ? 'selected' : ''}>${esc(queueOptionLabel(task))}</option>`).join('');
-  const nav = TAB_LABELS.map(([id, label]) => `<button data-tab="${id}" class="nav-item ${state.activeTab === id ? 'on' : ''}" aria-selected="${state.activeTab === id}">${icon(id)}${label}</button>`).join('');
+  const nav = TAB_LABELS.map(([id, label]) => `<button data-tab="${id}" type="button" class="nav-item ${state.activeTab === id ? 'on' : ''}"${state.activeTab === id ? ' aria-current="page"' : ''}>${icon(id)}${label}</button>`).join('');
   app.innerHTML = `<main class="dashboard-shell">
-    <aside class="sidebar" aria-label="Dashboard sections"><div class="brand">aleron<span>MD</span></div><div class="case-picker"><div class="avatar">${esc(initials)}</div><div><select data-case-selector aria-label="Patient case">${options}</select><small>${model.patient.code ? `${esc(model.patient.code)} · ` : ''}${esc(displayValue(model.patient.age, 'years'))}</small></div></div><div class="rule"></div><nav role="tablist" aria-label="Dashboard sections">${nav}</nav></aside>
+    <aside class="sidebar" aria-label="Dashboard sections"><div class="sidebar-primary"><div class="brand">aleron<span>MD</span></div><div class="case-picker"><div class="avatar">${esc(initials)}</div><div class="case-picker-copy"><select data-case-selector aria-label="Patient case">${options}</select><small>${model.patient.code ? `${esc(model.patient.code)} · ` : ''}${esc(displayValue(model.patient.age, 'years'))}</small></div></div></div><div class="sidebar-navigation"><div class="rule"></div><nav aria-label="Dashboard sections">${nav}</nav></div></aside>
     <section class="main-pane">${activeView(model, state)}</section>
   </main>`;
 }

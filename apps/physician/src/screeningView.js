@@ -53,18 +53,18 @@ function listView(items, today) {
       rows: items.filter((item) => statusOf(item, today) === status),
     }))
     .filter((group) => group.rows.length);
-  return groups.map((group) => `
+  return `<div class="sc-list-stack">${groups.map((group) => `
     <section class="panel sc-group">
       <div class="panel-head"><h3>${esc(STATUS_META[group.status].label)}</h3><span>${group.rows.length}</span></div>
       <div class="sc-rows">${group.rows.map((item) => `
         <div class="sc-row">
           <div class="sc-name"><strong>${esc(item.name)}</strong><span>${esc(item.basis)}</span></div>
-          <div class="sc-cad">${esc(item.cadence)}</div>
+          <div class="sc-cad"><span class="k">Cadence</span><span class="v">${esc(item.cadence)}</span></div>
           <div class="sc-date"><span class="k">Last</span><span class="v">${esc(fmtDate(item.lastDone))}</span></div>
           <div class="sc-date"><span class="k">Next</span><span class="v sc-next-${STATUS_META[group.status].cls}">${esc(fmtDate(item.nextDue))}</span></div>
         </div>`).join('')}
       </div>
-    </section>`).join('');
+    </section>`).join('')}</div>`;
 }
 
 const MONTHS = ['J', 'F', 'M', 'A', 'M', 'J', 'J', 'A', 'S', 'O', 'N', 'D'];
@@ -106,13 +106,15 @@ function timelineView(items, today, year) {
       <div class="panel-head"><h3>Timeline</h3>
         <span class="sc-year-flip"><button type="button" data-sc-year="-1" aria-label="Previous year">‹</button><strong>${year}</strong><button type="button" data-sc-year="1" aria-label="Next year">›</button></span>
       </div>
-      <div class="sc-tl">
+      <div class="sc-tl" role="region" aria-label="Screening timeline">
+        <div class="sc-tl-grid">
         <div class="sc-tl-head">
           <div class="sc-tl-name"></div>
           <div class="sc-tl-track sc-tl-months">${MONTHS.map((m, i) => `<span style="left:${((i / 12) * 100).toFixed(2)}%">${m}</span>`).join('')}${nowLine}</div>
           <div class="sc-tl-date"></div>
         </div>
         ${rows}
+        </div>
       </div>
       <p class="rs-axis-note">Overdue items pin to today. Completed one-time screens mark their completion year.</p>
     </section>`;
@@ -124,13 +126,16 @@ export function screeningView(state) {
   const mode = state.screeningMode ?? 'list';
   const items = PROTOTYPE_SCREENINGS;
   const body = mode === 'timeline' ? timelineView(items, today, year) : listView(items, today);
-  return `
+  return `<section class="screen-frame stable-screen screening-screen">
     <header class="screen-head"><div><h1>Screening</h1><p>Surveillance and early detection, separate from risk reduction.</p></div>
       <div class="sc-mode" role="tablist" aria-label="Screening view">
         <button type="button" data-sc-mode="list" class="${mode === 'list' ? 'on' : ''}" role="tab" aria-selected="${mode === 'list'}">List</button>
         <button type="button" data-sc-mode="timeline" class="${mode === 'timeline' ? 'on' : ''}" role="tab" aria-selected="${mode === 'timeline'}">Timeline</button>
       </div>
     </header>
-    <div class="sc-banner">Illustrative schedule. Dates and cadence await a governed source.</div>
-    ${body}`;
+    <div class="screen-body screening-body">
+      <div class="sc-banner screen-state screen-state-advisory">Illustrative schedule. Dates and cadence await a governed source.</div>
+      ${body}
+    </div>
+  </section>`;
 }

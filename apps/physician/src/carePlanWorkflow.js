@@ -272,7 +272,25 @@ function problemMutationPayload(state) {
   };
 }
 
+function refreshDerivedPreview(state) {
+  if (state.fixture_content_state === 'not_emitted') {
+    state.narrative_state = 'current';
+    return;
+  }
+  const included = state.entries.filter((entry) => entry.problem.entry_inclusion === 'included');
+  const value = included.length
+    ? included.map((entry) => `${entry.problem.proposed_label.value}\nAssessment: ${entry.assessment.value}\nPlan: ${entry.plan.value}${entry.order_intents.filter((order) => order.inclusion_state === 'included').length ? `\nOrders: ${entry.order_intents.filter((order) => order.inclusion_state === 'included').map((order) => order.display_name).join(', ')}` : ''}`).join('\n\n')
+    : 'No included Care Plan problems.';
+  state.narrative.value = value;
+  state.narrative.authorship.origin = 'ai_derived';
+  state.narrative.authorship.current_value = value;
+  state.narrative.physician_edit_state = 'unedited';
+  state.narrative.physician_owned = false;
+  state.narrative_state = 'current';
+}
+
 function refreshHashes(state) {
+  refreshDerivedPreview(state);
   state.order_set_payload = orderSetPayload(state);
   state.order_set_hash = canonicalHash(state.order_set_payload);
   state.note_payload = notePayload(state);
@@ -358,10 +376,13 @@ export function createSyntheticCarePlanStore({ storage = globalThis.localStorage
       const stale = conflict(command); if (stale) return stale;
       const proposal = command.proposal;
       const bundle = proposal?.proposal_bundle;
-      const proposalKeys = new Set(['draft_id', 'draft_type', 'patient_reference', 'source_thread_id', 'source_message_id', 'adopted_claim_ids', 'source_claim_state', 'patient_context_packet_hash', 'model', 'prompt_version', 'evidence_refs', 'physician_edit_state', 'execution_state', 'chart_write_performed', 'can_execute', 'can_sign', 'can_send', 'can_transmit', 'can_commit', 'promotion_state', 'promotion_event_id', 'promoted_at', 'created_at', 'disclosure', 'proposal_bundle']);
+      const proposalKeys = new Set(['draft_id', 'draft_type', 'patient_reference', 'source_thread_id', 'source_message_id', 'adopted_claim_ids', 'source_claim_state', 'patient_context_packet_hash', 'model', 'provider', 'prompt_version', 'evidence_refs', 'physician_edit_state', 'execution_state', 'chart_write_performed', 'can_execute', 'can_sign', 'can_send', 'can_transmit', 'can_commit', 'promotion_state', 'promotion_event_id', 'promoted_at', 'created_at', 'disclosure', 'proposal_bundle', 'content', 'preserved_uncertainties']);
       const bundleKeys = new Set(['schema_version', 'proposal_id', 'patient_reference', 'patient_context_packet_hash', 'source_thread_id', 'source_message_id', 'source_adopted_claim_id', 'source_claim_state', 'narrative', 'entries', 'order_note', 'lineage']);
       const lineageKeys = new Set(['model', 'prompt_version', 'evidence_refs', 'patient_source_refs']);
-      if (!proposal || !bundle || !Object.keys(proposal).every((key) => proposalKeys.has(key)) || !Object.keys(bundle).every((key) => bundleKeys.has(key)) || !Object.keys(bundle.lineage ?? {}).every((key) => lineageKeys.has(key)) || !Object.keys(bundle.narrative ?? {}).every((key) => key === 'value')) return { ok: false, status: 422, error: 'proposal_schema_invalid', state: getState() };
+      const providerFieldsValid = (proposal?.provider === undefined || (proposal.provider === 'codex_subscription' && proposal.model === 'gpt-5.6-sol'))
+        && (proposal?.content === undefined || typeof proposal.content === 'string')
+        && (proposal?.preserved_uncertainties === undefined || (Array.isArray(proposal.preserved_uncertainties) && proposal.preserved_uncertainties.every((value) => typeof value === 'string')));
+      if (!proposal || !bundle || !providerFieldsValid || !Object.keys(proposal).every((key) => proposalKeys.has(key)) || !Object.keys(bundle).every((key) => bundleKeys.has(key)) || !Object.keys(bundle.lineage ?? {}).every((key) => lineageKeys.has(key)) || !Object.keys(bundle.narrative ?? {}).every((key) => key === 'value')) return { ok: false, status: 422, error: 'proposal_schema_invalid', state: getState() };
       if (proposal?.draft_type !== 'care_plan_bundle' || proposal?.promotion_state !== 'ready_for_promotion' || proposal?.source_claim_state !== 'adopted') return { ok: false, status: 422, error: 'proposal_not_promotion_ready', state: getState() };
       if (proposal.execution_state !== 'nonexecuting' || proposal.chart_write_performed !== false || !['can_execute', 'can_sign', 'can_send', 'can_transmit', 'can_commit'].every((key) => proposal[key] === false)) return { ok: false, status: 422, error: 'proposal_authority_invalid', state: getState() };
       if (proposal.patient_reference !== state.patient_reference || proposal.patient_context_packet_hash !== state.packet_hash || bundle?.patient_reference !== state.patient_reference || bundle?.patient_context_packet_hash !== state.packet_hash) return { ok: false, status: 409, error: 'proposal_patient_context_mismatch', state: getState() };
@@ -446,7 +467,16 @@ export function createSyntheticCarePlanStore({ storage = globalThis.localStorage
           },
           assessment: field(`${entryId}-assessment`, entry.assessment?.value ?? 'Not emitted'),
           plan: field(`${entryId}-plan`, entry.plan?.value ?? 'Not emitted'),
-          order_intents: clone(entry.order_intents ?? [])
+          order_intents: clone(entry.order_intents ?? []).map((order) => ({
+            ...order,
+            catalog_match_state: order.catalog_test_key ? 'verified' : 'no_match',
+            adapter_capability: order.catalog_test_key ? 'ready' : 'blocked',
+            adapter_block_reasons: order.catalog_test_key ? [] : ['catalog_match_missing'],
+            ordering_physician_id: PHYSICIAN.actor_id,
+            duplicate_check: 'clear',
+            version: 1,
+            supersedes_order_intent_id: null
+          }))
         };
       });
 
@@ -466,7 +496,6 @@ export function createSyntheticCarePlanStore({ storage = globalThis.localStorage
         return { ok: false, status: 503, error: 'draft_save_failed', state: getState() };
       }
       const stale = conflict(command); if (stale) return stale;
-      let clinicalSourceChanged = false;
       for (const change of command.changes ?? []) {
         const prior = change.path.split('.').reduce((value, key) => value?.[Number.isInteger(Number(key)) ? Number(key) : key], state);
         setPath(state, change.path, clone(change.value));
@@ -480,13 +509,9 @@ export function createSyntheticCarePlanStore({ storage = globalThis.localStorage
             field.authorship.edited_at = now();
             field.authorship.supersedes_field_version = state.server_revision;
             field.physician_edit_state = 'edited';
-            if (field === state.narrative) field.physician_owned = true;
           }
         }
-        if (/entries\.\d+\.(assessment|plan|problem)/.test(change.path)) clinicalSourceChanged = true;
-        if (change.path === 'narrative.value') state.narrative_state = 'current';
       }
-      if (clinicalSourceChanged) state.narrative_state = 'out_of_date';
       return finishDraftMutation(command, 'draft_saved');
     },
     matchCatalog(command) {
@@ -523,11 +548,12 @@ export function createSyntheticCarePlanStore({ storage = globalThis.localStorage
     },
     authorizeOrders(command) {
       if (!actorCanCommit(command.actor)) return { ok: false, status: 403, error: 'physician_authority_required' };
+      if (!String(state.note_lock_state).startsWith('locked')) return { ok: false, status: 409, error: 'note_lock_required' };
       if (state.command_results[command.idempotency_key]) return clone(state.command_results[command.idempotency_key]);
-      const pendingTarget = command.pending_snapshot_id ? state.pending_order_set : null;
-      if (pendingTarget && (command.pending_snapshot_id !== pendingTarget.snapshot_id || command.pending_snapshot_revision !== pendingTarget.snapshot_revision)) return { ok: false, status: 409, error: 'draft_revision_conflict' };
-      if (!pendingTarget && command.draft_revision !== state.server_revision) return { ok: false, status: 409, error: 'draft_revision_conflict' };
-      if (command.payload_hash !== (pendingTarget?.payload_hash ?? state.order_set_hash)) return { ok: false, status: 409, error: 'stale_payload_hash' };
+      const pendingTarget = state.pending_order_set;
+      if (!pendingTarget) return { ok: false, status: 409, error: 'pending_order_set_required' };
+      if (command.pending_snapshot_id !== pendingTarget.snapshot_id || command.pending_snapshot_revision !== pendingTarget.snapshot_revision) return { ok: false, status: 409, error: 'draft_revision_conflict' };
+      if (command.payload_hash !== pendingTarget.payload_hash) return { ok: false, status: 409, error: 'stale_payload_hash' };
       if (!command.attested || !command.interaction_nonce) return { ok: false, status: 422, error: 'physician_attestation_required' };
       const included = pendingTarget
         ? pendingTarget.payload.order_intents.filter((order) => order.inclusion_state === 'included' && order.pending_state !== 'cancelled')

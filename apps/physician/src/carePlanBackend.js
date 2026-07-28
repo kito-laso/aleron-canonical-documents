@@ -122,8 +122,8 @@ export function isPublicStagingLocation(locationLike = globalThis.location) {
   }
 }
 
-export function usesLocalCarePlanStore(locationLike = globalThis.location, fixtureMode = false) {
-  return fixtureMode === true || isPublicStagingLocation(locationLike);
+export function usesLocalCarePlanStore(locationLike = globalThis.location, fixtureMode = false, codexMode = false) {
+  return fixtureMode === true || codexMode === true || isPublicStagingLocation(locationLike);
 }
 
 export function isExpectedPublicStagingCarePlanDenial(error, locationLike = globalThis.location) {
@@ -222,8 +222,14 @@ export function payloadFromCarePlanState(state) {
     return original;
   });
   payload.narrative = clone(state.narrative);
+  const included = payload.entries.filter((entry) => entry.problem.entry_inclusion === 'included');
+  payload.narrative.value = included.length
+    ? included.map((entry) => `${entry.problem.label}\nAssessment: ${entry.assessment.value}\nPlan: ${entry.plan.value}${entry.order_intents.filter((order) => order.inclusion_state === 'included').length ? `\nOrders: ${entry.order_intents.filter((order) => order.inclusion_state === 'included').map((order) => order.display_name).join(', ')}` : ''}`).join('\n\n')
+    : 'No included Care Plan problems.';
+  payload.narrative.physician_owned = false;
+  if (typeof payload.narrative?.authorship === 'object') payload.narrative.authorship.origin = 'ai_derived';
   if (typeof payload.narrative?.authorship === 'object' && Object.keys(payload.narrative.authorship).length <= 3) payload.narrative.authorship = payload.narrative.authorship.origin;
-  payload.narrative.state = state.narrative_state;
+  payload.narrative.state = 'current';
   return payload;
 }
 
@@ -241,11 +247,12 @@ export function mergeCarePlanTransition(inputState, result, transitionKind) {
   if (!['succeeded', 'authorized_simulated', 'locked_simulated'].includes(outcomeState ?? result.note_lock_state)) return state;
   const expectedTargetHash = transitionKind === 'authorize_order_set' ? (state.pending_order_set?.payload_hash ?? state.order_set_hash) : state.payload_hash;
   const expectedTargetId = transitionKind === 'authorize_order_set' ? (state.pending_order_set?.snapshot_id ?? state.draft_id) : state.draft_id;
+  const expectedTargetRevision = transitionKind === 'authorize_order_set' ? (state.pending_order_set?.snapshot_revision ?? state.server_revision) : state.server_revision;
   const resultHash = transitionKind === 'authorize_order_set' ? result.payload_hash : result.note_hash;
-  if (result.patient_reference !== state.patient_reference || result.target_revision !== state.server_revision || result.target_id !== expectedTargetId || resultHash !== expectedTargetHash) throw new Error('Care Plan transition response patient or target binding mismatch.');
+  if (result.patient_reference !== state.patient_reference || result.target_revision !== expectedTargetRevision || result.target_id !== expectedTargetId || resultHash !== expectedTargetHash) throw new Error('Care Plan transition response patient or target binding mismatch.');
   const rawReceipt = result.receipt ?? result.note_receipt;
   const receipt = rawReceipt ? { ...clone(rawReceipt), receipt_id: rawReceipt.receipt_id ?? rawReceipt.receipt_hash } : null;
-  if (!receipt || receipt.patient_reference !== state.patient_reference || receipt.target_revision !== state.server_revision || receipt.target_id !== expectedTargetId || receipt.payload_hash !== expectedTargetHash || receipt.transition_kind !== transitionKind) throw new Error('Care Plan transition receipt binding mismatch.');
+  if (!receipt || receipt.patient_reference !== state.patient_reference || receipt.target_revision !== expectedTargetRevision || receipt.target_id !== expectedTargetId || receipt.payload_hash !== expectedTargetHash || receipt.transition_kind !== transitionKind) throw new Error('Care Plan transition receipt binding mismatch.');
   const problemReceipts = transitionKind === 'lock_note' ? (result.problem_receipts ?? []) : [];
   if (transitionKind === 'lock_note') {
     if (!Array.isArray(problemReceipts) || problemReceipts.length !== state.problem_mutation_set.length) throw new Error('Care Plan problem receipts are incomplete.');

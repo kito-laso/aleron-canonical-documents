@@ -1,7 +1,7 @@
-import { assertFixtureBundle, loadFixtureBundle, selectFixtureBundle } from './fixtureLoader.js?v=physician-ai-care-plan-v4';
-import { PHYSICIAN_RUNTIME_CONFIG } from './runtimeConfig.js?v=physician-ai-care-plan-v4';
-import { createPhysicianAIBackendClient } from './aiColleagueBackend.js?v=physician-ai-care-plan-v4';
-import { createCarePlanBackendClient } from './carePlanBackend.js?v=physician-ai-care-plan-v4';
+import { assertFixtureBundle, loadFixtureBundle, selectFixtureBundle } from './fixtureLoader.js?v=physician-ai-care-plan-v7';
+import { PHYSICIAN_RUNTIME_CONFIG } from './runtimeConfig.js?v=physician-ai-care-plan-v7';
+import { createPhysicianAIBackendClient } from './aiColleagueBackend.js?v=physician-ai-care-plan-v7';
+import { createCarePlanBackendClient } from './carePlanBackend.js?v=physician-ai-care-plan-v7';
 
 let fixtureCache;
 let backendCache;

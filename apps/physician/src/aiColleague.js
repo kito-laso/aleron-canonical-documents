@@ -1,7 +1,14 @@
 const STORAGE_PREFIX = 'aleron.physician-ai.v1:';
 const FIXTURE_SOURCE_LINE = 'Illustrative fixture response, not model generated.';
-const CONSULTATION_TYPES = new Set(['challenge', 'blind_second_opinion', 'specialist', 'evidence_review', 'data_audit']);
+const CONSULTATION_TYPES = new Set(['challenge', 'blind_second_opinion', 'specialist', 'evidence_review', 'data_audit', 'action_comparison']);
+const MATERIAL_CLAIM_TYPES = new Set(['pattern', 'hypothesis', 'interpretation', 'proposed_focus']);
 const DRAFT_TYPES = new Set(['note_section', 'recommendation', 'problem_proposal', 'order_intent']);
+
+export function requiresCrossDomainMaterialThought(question) {
+  const text = String(question ?? '').trim();
+  return /cross[- ]domain/i.test(text)
+    || (/integrat/i.test(text) && /risk domains?/i.test(text));
+}
 
 function array(value) {
   return Array.isArray(value) ? value : [];
@@ -53,15 +60,32 @@ function measurement(caseBundle, key) {
 }
 
 function sourceRefs(caseBundle) {
-  const refs = new Set();
-  array(caseBundle?.patient_packet?.symptoms).forEach((_, index) => refs.add(`patient_packet.symptoms[${index}]`));
-  const measurements = caseBundle?.patient_packet?.measurements ?? {};
+  const refs = new Set(['patient_packet.age', 'patient_packet.sex']);
+  const packet = caseBundle?.patient_packet ?? {};
+  array(packet.symptoms).forEach((_, index) => refs.add(`patient_packet.symptoms[${index}]`));
+  array(packet.family_history).forEach((_, index) => refs.add(`patient_packet.family_history[${index}]`));
+  const measurements = packet.measurements ?? {};
   for (const [groupKey, group] of Object.entries(measurements)) {
     if (!group || typeof group !== 'object' || Array.isArray(group)) continue;
     for (const [key, row] of Object.entries(group)) {
       if (row && typeof row === 'object' && !Array.isArray(row) && 'value' in row) refs.add(`patient_packet.measurements.${groupKey}.${key}`);
     }
   }
+  array(packet.diagnostic_results).forEach((result, resultIndex) => {
+    array(result?.observations).forEach((_, observationIndex) => {
+      refs.add(`patient_packet.diagnostic_results[${resultIndex}].observations[${observationIndex}]`);
+    });
+  });
+  array(caseBundle?.action_map_state?.risk_outputs).forEach((row, index) => {
+    if (row && typeof row.target_id === 'string' && typeof row.endpoint === 'string'
+      && Number.isFinite(row.horizon_years) && Number.isFinite(row.probability)
+      && typeof row.model_id === 'string' && typeof row.model_version === 'string'
+      && typeof row.output_id === 'string'
+      && (typeof row.projection_state === 'string'
+        || row.registry_execution_provenance?.canonical_registry_execution === true)) {
+      refs.add(`action_map_state.risk_outputs[${index}]`);
+    }
+  });
   return [...refs];
 }
 
@@ -206,30 +230,34 @@ export function createWorkspaceRepository(storage) {
   if (!storage || typeof storage.getItem !== 'function' || typeof storage.setItem !== 'function') {
     throw new Error('AI workspace repository requires a storage adapter.');
   }
+  const key = (id, hash) => {
+    if (!id || !hash) throw new Error('AI workspace storage requires patient and packet identity.');
+    return `${STORAGE_PREFIX}${encodeURIComponent(id)}:${encodeURIComponent(hash)}`;
+  };
   return {
-    load(id) {
-      const raw = storage.getItem(`${STORAGE_PREFIX}${encodeURIComponent(id)}`);
+    load(id, hash) {
+      const raw = storage.getItem(key(id, hash));
       if (!raw) return null;
       const parsed = JSON.parse(raw);
-      if (parsed.patientId !== id) throw new Error('Stored AI workspace patient boundary mismatch.');
+      if (parsed.patientId !== id || parsed.packetHash !== hash) throw new Error('Stored AI workspace patient or packet boundary mismatch.');
       return attachActiveThread(parsed);
     },
     save(workspace) {
       if (!workspace?.patientId) throw new Error('Cannot persist an AI workspace without a patient reference.');
       const persisted = clone(workspace);
       delete persisted.activeThread;
-      storage.setItem(`${STORAGE_PREFIX}${encodeURIComponent(workspace.patientId)}`, JSON.stringify(persisted));
+      storage.setItem(key(workspace.patientId, workspace.packetHash), JSON.stringify(persisted));
       return workspace;
     },
-    remove(id) {
-      storage.removeItem(`${STORAGE_PREFIX}${encodeURIComponent(id)}`);
+    remove(id, hash) {
+      storage.removeItem(key(id, hash));
     }
   };
 }
 
 export function resumeAIWorkspace(caseBundle, repository, options = {}) {
   const seed = createInitialAIWorkspace(caseBundle, options);
-  const stored = repository?.load(seed.patientId);
+  const stored = repository?.load(seed.patientId, seed.packetHash);
   if (!stored) return seed;
   if (stored.packetHash !== seed.packetHash) return seed;
   return attachActiveThread({
@@ -303,6 +331,7 @@ export function validateMaterialClaim(claim, permittedSourceRefs) {
   if (!claim || typeof claim !== 'object') throw new Error('Material claim is required.');
   const required = ['claim_id', 'thread_id', 'patient_id', 'claim_type', 'statement', 'state', 'created_by'];
   for (const field of required) if (!claim[field]) throw new Error(`Material claim requires ${field}.`);
+  if (!MATERIAL_CLAIM_TYPES.has(claim.claim_type)) throw new Error('Material claim type must be pattern, hypothesis, interpretation, or proposed_focus.');
   const confidence = claim.confidence ?? {};
   for (const field of ['estimate_pct', 'calibration_status', 'band', 'basis', 'main_uncertainty']) {
     if (confidence[field] === undefined || confidence[field] === null || confidence[field] === '') throw new Error(`Material claim confidence requires ${field}.`);
@@ -387,8 +416,15 @@ export function applyProviderMessage(inputWorkspace, text, response) {
   const thread = activeThread(workspace);
   if (!thread || thread.patientId !== workspace.patientId) throw new Error('Active AI thread does not match the selected patient.');
   const claims = array(response.claims);
+  const requiresCrossDomainThought = requiresCrossDomainMaterialThought(question);
+  if (requiresCrossDomainThought && claims.length === 0) {
+    throw new Error('Codex cross-domain response requires a nonempty material thought.');
+  }
   for (const claim of claims) {
     validateProviderClaim(claim, workspace, thread);
+    if (requiresCrossDomainThought && new Set(array(claim.patient_source_refs)).size < 2) {
+      throw new Error('Codex cross-domain thought requires at least two patient-bound source references.');
+    }
     if (thread.claims.some((candidate) => candidate.claim_id === claim.claim_id)) {
       throw new Error('Codex provider returned a duplicate claim ID.');
     }
@@ -450,6 +486,9 @@ export function applyProviderConsultation(inputWorkspace, claimId, response, opt
     consultation.parent_consultation_id = parent.consultation_id;
     consultation.consultation_context_id = parent.consultation_context_id ?? parent.consultation_id;
     consultation.is_follow_up = true;
+    consultation.target_statement = parent.target_statement;
+  } else {
+    consultation.target_statement = claim.statement;
   }
   consultation.target_claim_id = claimId;
   thread.consultations.push(consultation);
@@ -499,6 +538,7 @@ export function applyProviderDraft(inputWorkspace, response) {
     .find((message) => array(message.claim_ids).some((id) => draft.adopted_claim_ids.includes(id)))
     ?.message_id ?? null;
   if (!draft.source_message_id) throw new Error('Codex draft source message could not be resolved.');
+  if (draft.draft_type === 'care_plan_bundle') draft.proposal_bundle.source_message_id ??= draft.source_message_id;
   thread.drafts.push(draft);
   thread.lastActivity = draft.created_at;
   return replaceThread(workspace, thread);
@@ -509,6 +549,7 @@ function consultationFor(workspace, claim, type, options) {
     consultation_id: nextId('consultation', workspace),
     thread_id: claim.thread_id,
     target_claim_id: claim.claim_id,
+    target_statement: claim.statement,
     consultation_type: type,
     specialty: options.specialty ?? null,
     context_packet_hash: workspace.packetHash,
@@ -517,7 +558,8 @@ function consultationFor(workspace, claim, type, options) {
     prompt_version: `${type.replaceAll('_', '-')}.v1`,
     created_at: options.now ?? new Date().toISOString(),
     source_line: FIXTURE_SOURCE_LINE,
-    evidence_refs: []
+    evidence_refs: [],
+    proposed_revision: null
   };
   if (type === 'challenge') return {
     ...base,
@@ -526,6 +568,7 @@ function consultationFor(workspace, claim, type, options) {
     position: 'Weakened: one wearable oxygen nadir and nonspecific fatigue do not establish sleep-disordered breathing.',
     confidence: { estimate_pct: 45, calibration_status: 'uncalibrated', band: 'moderate', basis: 'The signal is suggestive but not diagnostic.', main_uncertainty: 'Diagnostic sleep data are not emitted.' },
     agreement: 'weakened',
+    proposed_revision: 'Sleep-disordered breathing is plausible but not established and requires additional symptom history before testing is proposed.',
     supporting_patient_facts: claim.supporting_patient_facts,
     contradictory_patient_facts: claim.contradictory_patient_facts,
     alternatives: claim.alternative_explanations,
@@ -568,6 +611,18 @@ function consultationFor(workspace, claim, type, options) {
     discriminating_information: ['Governed evidence review'],
     evidence_state: 'candidate_unverified'
   };
+  if (type === 'action_comparison') return {
+    ...base,
+    blinded_to_primary_answer: false,
+    information_boundary: 'Only governed Action Library candidates, emitted effects, confidence, and dispositions may be compared; no unsupported action was created or ranked.',
+    position: 'No governed Action Library candidates are attached to this AI workspace, so no action comparison was performed.',
+    confidence: { estimate_pct: 0, calibration_status: 'uncalibrated', band: 'low', basis: 'The consultation has no admitted governed action candidates.', main_uncertainty: 'Action Library candidates and dispositions are not emitted in this workspace.' },
+    agreement: 'unresolved',
+    supporting_patient_facts: [],
+    contradictory_patient_facts: [],
+    alternatives: [],
+    discriminating_information: ['Governed Action Library candidates with effects, confidence, and dispositions']
+  };
   return {
     ...base,
     blinded_to_primary_answer: false,
@@ -595,6 +650,52 @@ export function runFixtureConsultation(inputWorkspace, claimId, type, options = 
   return { workspace: replaceThread(workspace, thread), consultation };
 }
 
+export function acceptConsultationRevision(inputWorkspace, claimId, consultationId, options = {}) {
+  const workspace = clone(inputWorkspace);
+  const thread = activeThread(workspace);
+  const claim = thread?.claims.find((candidate) => candidate.claim_id === claimId);
+  const consultation = thread?.consultations.find((candidate) => candidate.consultation_id === consultationId);
+  if (!claim || !consultation || consultation.target_claim_id !== claimId) throw new Error('Revision acceptance requires a consultation on the selected clinical thought.');
+  if (consultation.revision_disposition) throw new Error('Consultation revision decision is already recorded.');
+  const revision = String(consultation.proposed_revision ?? '').trim();
+  if (!revision) throw new Error('Consultation did not propose a revision.');
+  if (claim.state !== 'working') throw new Error('Only an open clinical thought can be revised.');
+  if (claim.statement !== consultation.target_statement) throw new Error('Consultation revision is stale for the current clinical thought wording.');
+  const now = options.now ?? new Date().toISOString();
+  const actorId = options.actorId ?? 'fixture-physician';
+  claim.revision_history = [...array(claim.revision_history), {
+    prior_statement: claim.statement,
+    revised_statement: revision,
+    source_consultation_id: consultationId,
+    accepted_at: now,
+    accepted_by_actor_id: actorId
+  }];
+  claim.statement = revision;
+  consultation.revision_disposition = 'accepted';
+  consultation.revision_decided_at = now;
+  consultation.revision_decided_by_actor_id = actorId;
+  workspace.adoptionPendingClaimId = null;
+  thread.lastActivity = now;
+  return replaceThread(workspace, thread);
+}
+
+export function keepCurrentClaimWording(inputWorkspace, claimId, consultationId, options = {}) {
+  const workspace = clone(inputWorkspace);
+  const thread = activeThread(workspace);
+  const claim = thread?.claims.find((candidate) => candidate.claim_id === claimId);
+  const consultation = thread?.consultations.find((candidate) => candidate.consultation_id === consultationId);
+  if (!claim || consultation?.target_claim_id !== claimId) {
+    throw new Error('Revision disposition requires a consultation on the selected clinical thought.');
+  }
+  if (consultation.revision_disposition) throw new Error('Consultation revision decision is already recorded.');
+  if (claim.state !== 'working' || claim.statement !== consultation.target_statement) throw new Error('Consultation revision is stale for the current clinical thought wording.');
+  consultation.revision_disposition = 'kept_current';
+  consultation.revision_decided_at = options.now ?? new Date().toISOString();
+  consultation.revision_decided_by_actor_id = options.actorId ?? 'fixture-physician';
+  thread.lastActivity = consultation.revision_decided_at;
+  return replaceThread(workspace, thread);
+}
+
 export function runFixtureConsultationFollowUp(inputWorkspace, consultationId, question, options = {}) {
   const followUpQuestion = String(question ?? '').trim();
   if (!followUpQuestion) throw new Error('Consultation follow-up question is required.');
@@ -606,6 +707,7 @@ export function runFixtureConsultationFollowUp(inputWorkspace, consultationId, q
   const claim = thread.claims.find((candidate) => candidate.claim_id === parent.target_claim_id);
   if (!claim) throw new Error('Consultation follow-up requires the original material claim.');
   const consultation = consultationFor(workspace, claim, parent.consultation_type, { specialty: parent.specialty, now: options.now });
+  consultation.target_statement = parent.target_statement;
   consultation.parent_consultation_id = parent.consultation_id;
   consultation.consultation_context_id = parent.consultation_context_id ?? parent.consultation_id;
   consultation.is_follow_up = true;

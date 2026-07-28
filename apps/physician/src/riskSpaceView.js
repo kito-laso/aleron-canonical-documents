@@ -138,6 +138,20 @@ function riskArrCoordinates(model) {
     : [];
 }
 
+const BASELINE_BINDINGS = {
+  'metabolic:Incident type 2 diabetes': { targetId: 'INCIDENT_T2DM', horizonYears: 10 },
+};
+
+function compatibleBaseline(model, domain, lane) {
+  const binding = BASELINE_BINDINGS[`${domain?.id}:${lane?.label}`];
+  if (!binding) return null;
+  return (model?.risk ?? []).find((row) =>
+    row?.target_id === binding.targetId
+    && asFinite(row?.horizon_years) === binding.horizonYears
+    && asFinite(row?.probability) !== null
+  ) ?? null;
+}
+
 function coordinateForAction(model, action) {
   const slug = normalizedActionId(action?.slug);
   return riskArrCoordinates(model).find((coordinate) =>
@@ -293,12 +307,46 @@ function baselineTable(model, domain) {
   ).join(''));
 }
 
-function arrCard(selected, coordinate) {
+function riskReviewSummary(model, domain) {
+  const rows = domainRiskRows(model, domain.id).filter((row) => asFinite(row.probability) !== null);
+  const primary = [...rows].sort((left, right) => (asFinite(right.horizon_years) ?? -1) - (asFinite(left.horizon_years) ?? -1))[0] ?? null;
+  const measurements = model?.patientData?.measurements ?? [];
+  const supportingKeys = domain.id === 'kidney' ? ['egfr', 'uacr']
+    : domain.id === 'cardiovascular' ? ['systolic_bp', 'total_cholesterol', 'hdl']
+      : domain.id === 'metabolic' ? ['hba1c', 'bmi']
+        : domain.id === 'cancer' ? ['psa'] : ['bmi'];
+  const supporting = supportingKeys.map((key) => measurements.find((row) => row.key === key)).filter(Boolean);
+  const riskText = primary
+    ? `${percent(primary.probability)} ${primary.horizon_years ? `over ${primary.horizon_years} years` : 'for the emitted endpoint'}`
+    : 'No calculated baseline is emitted for this domain';
+  const supportHtml = supporting.length
+    ? supporting.map((row) => `<li><strong>${esc(row.label)}</strong> ${esc(row.value)} ${esc(row.units ?? '')}</li>`).join('')
+    : '<li>No supporting patient measurements are emitted for this domain.</li>';
+  const modelLine = primary
+    ? `${primary.model_id ?? 'Model not emitted'} · ${primary.model_version ?? 'version not emitted'}`
+    : 'No calculated model lineage emitted';
+  const question = `For ${model?.patient?.name ?? 'this patient'}, integrate the ${domain.title.toLowerCase()} baseline (${riskText}) with the other emitted risk domains. Which modifiable driver should the physician prioritize, what conflicts or uncertainties matter, and what additional information would change the conclusion?`;
+  return `<section class="panel rs-review-summary" aria-label="Patient risk review summary">
+    <div class="panel-head"><div><span>Primary concern · ${esc(model?.patient?.name ?? 'Selected patient')}</span><h3>${esc(domain.title)} baseline needs physician interpretation</h3></div><strong>${esc(riskText)}</strong></div>
+    <p>The current concern is driven by this patient-bound baseline and the values below; it is not a diagnosis or a treatment recommendation.</p>
+    <ul>${supportHtml}</ul>
+    <div class="rs-review-uncertainty"><strong>What remains uncertain</strong><p>Relative treatment effects are not automatically endpoint-compatible with this baseline. Cross-domain priorities, tolerability, preferences, and missing context still require physician judgment.</p></div>
+    <details><summary>Evidence and calculation trace</summary><p>Patient packet ${esc(model?.patient?.snapshotDate ?? 'date not emitted')} · Canonical registry · ${esc(modelLine)} · synthetic staging; clinical use prohibited.</p></details>
+    <button type="button" data-risk-continue-ai="${esc(question)}">Continue in Aleron AI</button>
+    <small>The question opens in the same patient and packet context; no fallback or chart action is created.</small>
+  </section>`;
+}
+
+function arrCard(selected, coordinate, model, domain) {
   const key = `${selected.action.key} · ${selected.action.name} · ${selected.lane.label}`;
   if (!coordinate || coordinate.coordinate_status !== 'materialized') {
-    const reason = coordinate?.blocked_reason === 'MISSING_TECHNIQUE_BINDING'
-      ? 'No governed technique binding'
-      : 'Compatible baseline risk not emitted for this patient';
+    const emittedBaseline = compatibleBaseline(model, domain, selected.lane);
+    const baselineResult = rowResult(emittedBaseline);
+    const reason = emittedBaseline
+      ? `Compatible baseline emitted: ${baselineResult.text} at ${Number(emittedBaseline.horizon_years)} years; the governed ${selected.action.measure}-to-ARR transform is not materialized`
+      : coordinate?.blocked_reason === 'MISSING_TECHNIQUE_BINDING'
+        ? 'No governed technique binding'
+        : 'Compatible baseline risk not emitted for this patient';
     return `
         <section class="panel rs-arr" aria-label="Patient-conditioned benefit">
           <div class="rs-arr-key">${esc(key)}</div>
@@ -428,7 +476,7 @@ export function riskSpaceView(model, state) {
   const domain = RISK_DOMAINS.find((d) => d.id === selectedDomainId) ?? triageDomain;
   const selected = findAction(domain, state.selectedRiskAction) ?? { action: domain.lanes[0].actions[0], lane: domain.lanes[0] };
   const selectedCoordinate = coordinateForAction(model, selected.action);
-  const hasMaterializedCoordinate = riskArrCoordinates(model).some((coordinate) => coordinate?.coordinate_status === 'materialized');
+  const hasEmittedBaseline = (model?.risk ?? []).some((row) => asFinite(row?.probability) !== null);
 
   const tabs = RISK_DOMAINS.map((d) => {
     const tier = domainTier(model, d);
@@ -467,17 +515,18 @@ export function riskSpaceView(model, state) {
     </div>`)).join('');
 
   return `
-    <header class="screen-head"><div><h1>Risk</h1><p>${hasMaterializedCoordinate ? 'Patient-conditioned baseline risk and absolute risk reduction are emitted where endpoint-compatible.' : 'Native relative effects by disease domain. Baseline risk not yet emitted; absolute risk reduction appears when it is.'}</p></div></header>
+    <header class="screen-head"><div><h1>Risk</h1><p>${hasEmittedBaseline ? 'Patient-conditioned baseline risk is emitted by endpoint and horizon; absolute benefit appears only after a governed compatible transform materializes.' : 'Native relative effects by disease domain. Baseline risk not yet emitted; absolute risk reduction appears when it is.'}</p></div></header>
     <nav class="rs-tabs" role="tablist" aria-label="Risk domains">${tabs}</nav>
     <div class="rs-workspace" id="risk-domain-panel" role="tabpanel" aria-labelledby="risk-domain-tab-${esc(domain.id)}">
       <section class="rs-main">
         <div class="rs-domain-intro"><h2>${esc(domain.title)}</h2></div>
+        ${riskReviewSummary(model, domain)}
         <section class="panel rs-model"><div class="panel-head"><h3>Baseline risk</h3></div>
           <div class="rs-model-block">
             ${domainBaselineTable}
           </div>
         </section>
-        ${arrCard(selected, selectedCoordinate)}
+        ${arrCard(selected, selectedCoordinate, model, domain)}
         <section class="panel rs-space">
           <div class="panel-head"><h3>Action Space</h3><span>Hover a point for effect, interval, and confidence.</span></div>
           ${lanes}
