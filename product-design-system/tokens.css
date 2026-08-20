@@ -103,6 +103,7 @@
   --dur-base: 240ms;
   --dur-slow: 400ms;
   --day-shadow-tier1: 0 12px 36px rgba(29,27,24,0.09);
+  --opacity-disabled: 0.5;
   --ground: var(--paper);
   --text-primary: var(--ink);
   --text-secondary: var(--slate);

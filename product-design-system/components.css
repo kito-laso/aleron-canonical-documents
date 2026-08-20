@@ -80,7 +80,7 @@
 .amd-toggle::after { content: ''; position: absolute; left: var(--s-2xs); top: var(--s-2xs); width: calc(var(--s-xl) - var(--s-2xs) - var(--s-2xs)); height: calc(var(--s-xl) - var(--s-2xs) - var(--s-2xs)); border-radius: 50%; background: var(--surface-card); transition: transform var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease); }
 .amd-toggle[aria-checked="true"] { background: var(--control-primary-bg); }
 .amd-toggle[aria-checked="true"]::after { transform: translateX(calc(var(--s-xl) * 0.75)); background: var(--control-primary-fg); }
-.amd-toggle:disabled { cursor: not-allowed; opacity: 0.5; }
+.amd-toggle:disabled { cursor: not-allowed; opacity: var(--opacity-disabled); }
 .amd-checkbox { display: inline-grid; place-items: center; width: var(--s-lg); height: var(--s-lg); padding: 0; border: var(--line-thin) solid var(--border-strong); border-radius: var(--radius-control); background: transparent; cursor: pointer; }
 .amd-checkbox::after { content: ''; width: var(--s-sm); height: var(--s-xs); border-left: var(--line-focus) solid transparent; border-bottom: var(--line-focus) solid transparent; transform: rotate(-45deg) translateY(calc(var(--s-2xs) / -2)); }
 .amd-checkbox[aria-checked="true"] { background: var(--control-primary-bg); border-color: var(--control-primary-bg); }
@@ -94,7 +94,7 @@
 .amd-slider { -webkit-appearance: none; appearance: none; width: 100%; height: var(--s-2xs); border-radius: var(--radius-tile); background: var(--surface-inset); cursor: pointer; }
 .amd-slider::-webkit-slider-thumb { -webkit-appearance: none; width: var(--s-lg); height: var(--s-lg); border: 0; border-radius: 50%; background: var(--control-primary-bg); cursor: pointer; }
 .amd-slider::-moz-range-thumb { width: var(--s-lg); height: var(--s-lg); border: 0; border-radius: 50%; background: var(--control-primary-bg); cursor: pointer; }
-.amd-slider:disabled { cursor: not-allowed; opacity: 0.5; }
+.amd-slider:disabled { cursor: not-allowed; opacity: var(--opacity-disabled); }
 .amd-otp { display: flex; gap: var(--s-xs); }
 .amd-otp__cell { width: var(--control-min-h); height: var(--control-min-h); border: 0; border-radius: var(--radius-control); background: var(--surface-inset); color: var(--text-primary); font: inherit; font-weight: 500; font-variant-numeric: tabular-nums; text-align: center; }
 .amd-otp__cell[aria-invalid="true"] { outline: var(--line-focus) solid var(--signal-hazard); outline-offset: var(--s-2xs); }

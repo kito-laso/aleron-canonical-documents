@@ -11,7 +11,7 @@
       "required": ["$type", "$value", "css", "description", "status"],
       "properties": {
         "$type": {
-          "enum": ["color", "fontFamily", "dimension", "cubicBezier", "duration", "shadow"]
+          "enum": ["color", "fontFamily", "dimension", "cubicBezier", "duration", "shadow", "opacity"]
         },
         "$value": {},
         "css": {
@@ -53,6 +53,15 @@
           },
           "then": {
             "properties": {"$value": {"type": "string", "minLength": 1}}
+          }
+        },
+        {
+          "if": {
+            "properties": {"$type": {"const": "opacity"}},
+            "required": ["$type"]
+          },
+          "then": {
+            "properties": {"$value": {"type": "string", "pattern": "^(0(\\.[0-9]+)?|1(\\.0+)?)$"}}
           }
         }
       ]
