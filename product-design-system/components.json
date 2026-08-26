@@ -2,8 +2,8 @@
  "$schema": "./schemas/components.schema.json",
  "design_system": "aleron-md-product-ds",
  "version": "0.5.0",
- "updated": "2026-07-17",
- "status_note": "Ratified entries have complete reusable web implementations. Provisional entries declare the intended state contract and may not yet encode every state selector. The physician register and the air and copy laws remain provisional where marked. Proposed 17 Jul 2026: the form-control set (select, segmented, toggle, checkbox, radio, slider, otp-field), the modal overlay grammar, and the surface loading instrument enter as provisional pending field validation.",
+ "updated": "2026-08-26",
+ "status_note": "Ratified entries have complete reusable web implementations. Provisional entries declare the intended state contract and may not yet encode every state selector. The physician register and the air and copy laws remain provisional where marked. Proposed 17 Jul 2026: the form-control set (select, segmented, toggle, checkbox, radio, slider, otp-field), the modal overlay grammar, and the surface loading instrument enter as provisional pending field validation. Proposed 26 Aug 2026: core.button's pressed state and the secondary and tertiary hover treatments enter as provisional pending field validation on touch hardware.",
  "global_forbidden": [
   "audit-face-except-wordmark-tag",
   "values-or-units-not-voice-tabular-500",
@@ -21,7 +21,7 @@
    "category": "core",
    "status": "ratified",
    "selector": ".amd-button",
-   "purpose": "Primary, secondary, tertiary, disabled, and loading actions.",
+   "purpose": "Primary, secondary, tertiary, disabled, and loading actions. On pointerless input, pressed carries the variant's hover treatment.",
    "registers": [
     "day",
     "flight-deck"
@@ -29,12 +29,18 @@
    "required_tokens": [
     "control-primary-bg",
     "control-primary-fg",
+    "control-primary-hover-bg",
+    "control-secondary-hover-border",
+    "control-tertiary-hover-fg",
     "radius.control",
-    "control.minHeight"
+    "control.minHeight",
+    "motion.fast",
+    "motion.ease"
    ],
    "states": [
     "default",
     "hover",
+    "pressed",
     "focus-visible",
     "disabled",
     "loading"
@@ -42,7 +48,9 @@
    "forbidden": [
     "gold-fill",
     "gold-border",
-    "pill-radius"
+    "pill-radius",
+    "ripple",
+    "press-transform"
    ],
    "reference": "./index.html#core",
    "implementation": {

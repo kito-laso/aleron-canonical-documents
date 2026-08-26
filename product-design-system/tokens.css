@@ -124,6 +124,8 @@
   --control-primary-bg: var(--ink);
   --control-primary-fg: var(--cream);
   --control-primary-hover-bg: #000000;
+  --control-secondary-hover-border: var(--ink);
+  --control-tertiary-hover-fg: var(--ink);
   --control-disabled-bg: var(--day-surface-inset);
   --control-disabled-fg: rgba(29,27,24,0.38);
   --shadow-tier1: var(--day-shadow-tier1);
@@ -151,6 +153,8 @@
   --control-primary-bg: var(--cream);
   --control-primary-fg: var(--ink);
   --control-primary-hover-bg: #FFFFFF;
+  --control-secondary-hover-border: var(--cream);
+  --control-tertiary-hover-fg: var(--cream);
   --control-disabled-bg: rgba(245,241,232,0.12);
   --control-disabled-fg: rgba(245,241,232,0.30);
   --shadow-tier1: 0 0 0 1px rgba(245,241,232,0.10);
