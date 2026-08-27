@@ -5,6 +5,28 @@ import argparse, json, pathlib, re, sys
 ROOT = pathlib.Path(__file__).resolve().parent
 OUT = ROOT / "AleronDesignTokens.swift"
 
+RENDERED_TYPES = {"color", "dimension", "cubicBezier", "duration", "shadow",
+                  "opacity", "fontWeight"}
+RENDERED_GROUPS = {"color", "size", "weight", "space", "air", "layout", "layer",
+                   "radius", "line", "control", "motion", "shadow", "opacity"}
+UNRENDERED_GROUPS = {"font"}
+
+def check_coverage(flat):
+    """render() dispatches per known $type and per group prefix, so a token whose
+    type or group is absent from both sets above produces no Swift output at all.
+
+    font is unrendered on purpose: a CSS font stack has no SwiftUI equivalent, and
+    AleronTypeface resolves PostScript face names out of font_faces instead.
+    """
+    types = {t["$type"] for p, t in flat.items()
+             if p.split(".")[0] not in UNRENDERED_GROUPS} - RENDERED_TYPES
+    groups = {p.split(".")[0] for p in flat} - RENDERED_GROUPS - UNRENDERED_GROUPS
+    if types or groups:
+        raise ValueError(
+            f"No Swift render case for type(s) {sorted(types)} / "
+            f"group(s) {sorted(groups)}: add one to render(), or list the group "
+            f"in UNRENDERED_GROUPS")
+
 def flatten(node, prefix=()):
     out = {}
     for key, value in node.items():
@@ -52,6 +74,7 @@ def px(value):
 
 def render(data):
     flat = flatten(data["tokens"])
+    check_coverage(flat)
     day, night = data["registers"]["day"], data["registers"]["flight-deck"]
     if set(day) != set(night):
         raise ValueError("Register key mismatch between day and flight-deck")
@@ -139,14 +162,16 @@ def render(data):
     A("public enum AleronTypeface {")
     A("    /// PolySans must be added to the app target and declared under UIAppFonts.")
     A("    public static func name(weight: Int, italic: Bool = false) -> String {")
-    A("        switch (weight, italic) {")
+    A("        let faces: [(weight: Int, italic: Bool, name: String)] = [")
     for face in data["font_faces"]:
         if face["family"] != "PolySans":
             continue
-        style = face["style"] == "italic"
-        A(f"        case ({face['weight']}, {str(style).lower()}): return \"{pathlib.PurePath(face['src']).stem}\"")
-    A("        default: return \"PolySans-Neutral\"")
-    A("        }")
+        style = str(face["style"] == "italic").lower()
+        A(f"            ({face['weight']}, {style}, \"{pathlib.PurePath(face['src']).stem}\"),")
+    A("        ]")
+    A("        let matching = faces.filter { $0.italic == italic }")
+    A("        let pool = matching.isEmpty ? faces : matching")
+    A("        return pool.min { abs($0.weight - weight) < abs($1.weight - weight) }?.name ?? \"PolySans-Neutral\"")
     A("    }")
     A("    public static func voice(_ size: CGFloat, weight: Int = 400) -> Font { .custom(name(weight: weight), size: size) }")
     A("}")
@@ -160,6 +185,19 @@ def render(data):
                 A(f"    public static let {camel(short)}Max: CGFloat = {nums[-1]}")
             else:
                 A(f"    public static let {camel(short)}: CGFloat = {float(token['$value'].replace('px', '')):g}")
+    A("}")
+    A("public enum AleronTypeWeight {")
+    for name, token in flat.items():
+        if token["$type"] == "fontWeight":
+            A(f"    public static let {camel(name.split('.')[-1])}: Int = {int(token['$value'])}")
+    A("}")
+    A("")
+    A("// MARK: - Opacity")
+    A("public enum AleronOpacity {")
+    for name, token in flat.items():
+        if token["$type"] == "opacity":
+            A(f"    /// {token['description']}")
+            A(f"    public static let {camel(name.split('.')[-1])}: Double = {float(token['$value']):g}")
     A("}")
     A("")
     A("// MARK: - Elevation")

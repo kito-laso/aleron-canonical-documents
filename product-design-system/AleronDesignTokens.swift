@@ -177,15 +177,17 @@ public enum AleronMotion {
 public enum AleronTypeface {
     /// PolySans must be added to the app target and declared under UIAppFonts.
     public static func name(weight: Int, italic: Bool = false) -> String {
-        switch (weight, italic) {
-        case (300, false): return "PolySans-Slim"
-        case (400, false): return "PolySans-Neutral"
-        case (400, true): return "PolySans-NeutralItalic"
-        case (500, false): return "PolySans-Median"
-        case (500, true): return "PolySans-MedianItalic"
-        case (700, false): return "PolySans-Bulky"
-        default: return "PolySans-Neutral"
-        }
+        let faces: [(weight: Int, italic: Bool, name: String)] = [
+            (300, false, "PolySans-Slim"),
+            (400, false, "PolySans-Neutral"),
+            (400, true, "PolySans-NeutralItalic"),
+            (500, false, "PolySans-Median"),
+            (500, true, "PolySans-MedianItalic"),
+            (700, false, "PolySans-Bulky"),
+        ]
+        let matching = faces.filter { $0.italic == italic }
+        let pool = matching.isEmpty ? faces : matching
+        return pool.min { abs($0.weight - weight) < abs($1.weight - weight) }?.name ?? "PolySans-Neutral"
     }
     public static func voice(_ size: CGFloat, weight: Int = 400) -> Font { .custom(name(weight: weight), size: size) }
 }
@@ -200,6 +202,19 @@ public enum AleronTypeSize {
     public static let small: CGFloat = 13
     public static let audit: CGFloat = 11.5
     public static let caption: CGFloat = 10.5
+}
+public enum AleronTypeWeight {
+    public static let display: Int = 650
+    public static let h1: Int = 650
+    public static let h2: Int = 650
+    public static let h3: Int = 500
+    public static let emphasis: Int = 500
+}
+
+// MARK: - Opacity
+public enum AleronOpacity {
+    /// Dims a control's own fill/foreground while disabled, for components with no neutral disabled surface to swap to instead. Already in use by amd-toggle and amd-slider before this token existed.
+    public static let disabled: Double = 0.5
 }
 
 // MARK: - Elevation
