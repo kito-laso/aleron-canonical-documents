@@ -1,43 +1,8 @@
 /* Generated from tokens.json. Do not edit directly. */
 @font-face {
-  font-family: 'PolySans';
-  src: url('fonts/PolySans-Slim.ttf') format('truetype');
-  font-weight: 300;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: 'PolySans';
-  src: url('fonts/PolySans-Neutral.ttf') format('truetype');
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: 'PolySans';
-  src: url('fonts/PolySans-NeutralItalic.ttf') format('truetype');
-  font-weight: 400;
-  font-style: italic;
-  font-display: swap;
-}
-@font-face {
-  font-family: 'PolySans';
-  src: url('fonts/PolySans-Median.ttf') format('truetype');
-  font-weight: 500;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: 'PolySans';
-  src: url('fonts/PolySans-MedianItalic.ttf') format('truetype');
-  font-weight: 500;
-  font-style: italic;
-  font-display: swap;
-}
-@font-face {
-  font-family: 'PolySans';
-  src: url('fonts/PolySans-Bulky.ttf') format('truetype');
-  font-weight: 700;
+  font-family: 'Hanken Grotesk';
+  src: url('fonts/HankenGrotesk-Variable.ttf') format('truetype');
+  font-weight: 100 900;
   font-style: normal;
   font-display: swap;
 }
@@ -61,7 +26,7 @@
   --day-surface-inset: #F1EDE6;
   --night-surface-inset: #20253A;
   --night-surface-sunken: #1C2030;
-  --voice: 'PolySans', 'Hanken Grotesk', -apple-system, BlinkMacSystemFont, sans-serif;
+  --voice: 'Hanken Grotesk', -apple-system, BlinkMacSystemFont, sans-serif;
   --audit: 'Space Mono', ui-monospace, Menlo, monospace;
   --size-display: clamp(32px, 4vw, 48px);
   --size-h1: 36px;

@@ -88,12 +88,7 @@
    "schemas/acceptance.schema.json"
   ],
   "fonts": [
-   "fonts/PolySans-Slim.ttf",
-   "fonts/PolySans-Neutral.ttf",
-   "fonts/PolySans-NeutralItalic.ttf",
-   "fonts/PolySans-Median.ttf",
-   "fonts/PolySans-MedianItalic.ttf",
-   "fonts/PolySans-Bulky.ttf"
+   "fonts/HankenGrotesk-Variable.ttf"
   ],
   "icons": [
    "icons/plan.svg",
