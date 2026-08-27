@@ -116,7 +116,7 @@ for component in components.get('components',[]):
     selector=component.get('implementation',{}).get('source_selector')
     if selector and selector not in css: errors.append(f'{component.get("id")}: source selector not found in components.css')
 ratified_state_selectors={
-    'core.button': {'default':'.amd-button {','hover':'.amd-button[data-variant="primary"]:hover','focus-visible':'.amd-button:focus-visible','disabled':'.amd-button:disabled','loading':'.amd-button[aria-busy="true"]'},
+    'core.button': {'default':'.amd-button {','hover':'.amd-button[data-variant="primary"]:hover','pressed':'.amd-button[data-variant="primary"]:active','focus-visible':'.amd-button:focus-visible','disabled':'.amd-button:disabled','loading':'.amd-button[aria-busy="true"]'},
     'core.input': {'default':'.amd-input {','focus-visible':'.amd-input:focus-visible','disabled':'.amd-input:disabled','invalid':'.amd-input[aria-invalid="true"]'},
     'core.card': {'tier1':'.amd-card[data-tier="1"]','tier2':'.amd-card[data-tier="2"]','flat':'.amd-card[data-tier="flat"]'},
     'core.tabs': {'default':'.amd-tabs [role="tab"] {','hover':'.amd-tabs [role="tab"]:hover','selected':'.amd-tabs [role="tab"][aria-selected="true"]','focus-visible':'.amd-tabs [role="tab"]:focus-visible'},

@@ -2764,12 +2764,12 @@ section.ds-section:first-child { border-top: none; padding-top: 48px; }
       <thead><tr><th>Token</th><th>Value</th><th>Use</th></tr></thead>
       <tbody>
         <tr><td>--ease</td><td>cubic-bezier(0.4,0,0.2,1)</td><td>Default</td></tr>
-        <tr><td>--dur-fast</td><td>150ms</td><td>Hover, focus, toggle</td></tr>
+        <tr><td>--dur-fast</td><td>150ms</td><td>Hover, press, focus, toggle</td></tr>
         <tr><td>--dur-base</td><td>240ms</td><td>Panel swap, tab switch</td></tr>
         <tr><td>--dur-slow</td><td>400ms</td><td>Modal, surface transition</td></tr>
       </tbody>
     </table>
-    <p class="fine">Motion reveals cause, never decorates. Loading is three dots. Numbers do not count up. Reduced motion: all durations to 0ms. At surface level the same three dots mark the region being loaded: no skeleton screens, no shimmer, no spinners.</p>
+    <p class="fine">Motion reveals cause, never decorates. Loading is three dots. Numbers do not count up. Reduced motion: all durations to 0ms. At surface level the same three dots mark the region being loaded: no skeleton screens, no shimmer, no spinners. On pointerless input the pressed state carries the variant's hover treatment, so a press is acknowledged on touch as well as on a pointer: there is no ripple and no press transform.</p>
   </div>
 
   <!-- FOCUS -->

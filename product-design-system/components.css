@@ -2,9 +2,11 @@
 .amd-surface { background: var(--ground); color: var(--text-primary); font-family: var(--voice); }
 .amd-button { min-height: var(--control-min-h); padding: var(--s-sm) var(--s-lg); border: 0; border-radius: var(--radius-control); font: inherit; cursor: pointer; transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease); }
 .amd-button[data-variant="primary"] { background: var(--control-primary-bg); color: var(--control-primary-fg); }
-.amd-button[data-variant="primary"]:hover { background: var(--control-primary-hover-bg); }
+.amd-button[data-variant="primary"]:hover:not(:disabled):not([aria-disabled="true"]), .amd-button[data-variant="primary"]:active:not(:disabled):not([aria-disabled="true"]) { background: var(--control-primary-hover-bg); }
 .amd-button[data-variant="secondary"] { background: transparent; color: var(--text-primary); border: var(--line-thin) solid var(--border-strong); }
+.amd-button[data-variant="secondary"]:hover:not(:disabled):not([aria-disabled="true"]), .amd-button[data-variant="secondary"]:active:not(:disabled):not([aria-disabled="true"]) { border-color: var(--control-secondary-hover-border); }
 .amd-button[data-variant="tertiary"] { background: transparent; color: var(--text-secondary); }
+.amd-button[data-variant="tertiary"]:hover:not(:disabled):not([aria-disabled="true"]), .amd-button[data-variant="tertiary"]:active:not(:disabled):not([aria-disabled="true"]) { color: var(--control-tertiary-hover-fg); }
 .amd-button[aria-busy="true"] { cursor: progress; color: var(--control-disabled-fg); }
 .amd-button:focus-visible, .amd-input:focus-visible, .amd-tabs [role="tab"]:focus-visible, .amd-ask-trigger:focus-visible { outline: var(--line-focus) solid var(--signal-forward); outline-offset: var(--s-2xs); }
 .amd-button:disabled, .amd-button[aria-disabled="true"] { background: var(--control-disabled-bg); color: var(--control-disabled-fg); cursor: not-allowed; }
