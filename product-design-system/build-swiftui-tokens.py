@@ -6,6 +6,7 @@ ROOT = pathlib.Path(__file__).resolve().parent
 OUT = ROOT / "AleronDesignTokens.swift"
 
 UNRENDERED = {"font.voice", "font.audit"}
+VOICE_FAMILY = "Hanken Grotesk"
 
 def without(data, path):
     stripped = copy.deepcopy(data)
@@ -179,19 +180,17 @@ def render(data, verify=True):
     A("}")
     A("")
     A("// MARK: - Type")
+    voice_face = next(f for f in data["font_faces"] if f["family"] == VOICE_FAMILY)
+    lo, _, hi = voice_face["weight"].partition(" ")
     A("public enum AleronTypeface {")
-    A("    /// PolySans must be added to the app target and declared under UIAppFonts.")
-    A("    public static func name(weight: Int, italic: Bool = false) -> String {")
-    A("        switch (weight, italic) {")
-    for face in data["font_faces"]:
-        if face["family"] != "PolySans":
-            continue
-        style = face["style"] == "italic"
-        A(f"        case ({face['weight']}, {str(style).lower()}): return \"{pathlib.PurePath(face['src']).stem}\"")
-    A("        default: return \"PolySans-Neutral\"")
-    A("        }")
-    A("    }")
-    A("    public static func voice(_ size: CGFloat, weight: Int = 400) -> Font { .custom(name(weight: weight), size: size) }")
+    A(f"    /// {voice_face['family']} must be added to the app target and declared under UIAppFonts.")
+    A("    public static let postScriptName = \"%s\"" % voice_face["postScriptName"])
+    A("    public static func voice(_ size: CGFloat) -> Font { .custom(postScriptName, size: size) }")
+    A("")
+    A("    /// Variable axis. Font.Weight has no case for every AleronTypeWeight value")
+    A("    /// (650 among them), so reach for the axis rather than .weight().")
+    A("    public static let weightAxis = \"wght\"")
+    A(f"    public static let weightRange: ClosedRange<Int> = {lo}...{hi or lo}")
     A("}")
     A("public enum AleronTypeSize {")
     for name, token in flat.items():

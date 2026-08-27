@@ -180,19 +180,14 @@ public enum AleronMotion {
 
 // MARK: - Type
 public enum AleronTypeface {
-    /// PolySans must be added to the app target and declared under UIAppFonts.
-    public static func name(weight: Int, italic: Bool = false) -> String {
-        switch (weight, italic) {
-        case (300, false): return "PolySans-Slim"
-        case (400, false): return "PolySans-Neutral"
-        case (400, true): return "PolySans-NeutralItalic"
-        case (500, false): return "PolySans-Median"
-        case (500, true): return "PolySans-MedianItalic"
-        case (700, false): return "PolySans-Bulky"
-        default: return "PolySans-Neutral"
-        }
-    }
-    public static func voice(_ size: CGFloat, weight: Int = 400) -> Font { .custom(name(weight: weight), size: size) }
+    /// Hanken Grotesk must be added to the app target and declared under UIAppFonts.
+    public static let postScriptName = "HankenGrotesk-Regular"
+    public static func voice(_ size: CGFloat) -> Font { .custom(postScriptName, size: size) }
+
+    /// Variable axis. Font.Weight has no case for every AleronTypeWeight value
+    /// (650 among them), so reach for the axis rather than .weight().
+    public static let weightAxis = "wght"
+    public static let weightRange: ClosedRange<Int> = 100...900
 }
 public enum AleronTypeSize {
     public static let displayMin: CGFloat = 32
