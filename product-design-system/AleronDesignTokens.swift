@@ -213,6 +213,14 @@ public enum AleronTypeWeight {
     public static let h3: Int = 500
     public static let emphasis: Int = 500
 }
+/// Em-relative. Multiply by font size for a SwiftUI .tracking() value.
+public enum AleronTypeTracking {
+    public static let display: CGFloat = -0.015
+}
+/// Unitless multiple of font size, not a SwiftUI .lineSpacing() gap.
+public enum AleronTypeLineHeight {
+    public static let display: CGFloat = 1.1
+}
 
 // MARK: - Opacity
 public enum AleronOpacity {

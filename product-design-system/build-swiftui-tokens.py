@@ -209,6 +209,18 @@ def render(data, verify=True):
         if token["$type"] == "fontWeight":
             A(f"    public static let {camel(name.split('.')[-1])}: Int = {int(token['$value'])}")
     A("}")
+    A("/// Em-relative. Multiply by font size for a SwiftUI .tracking() value.")
+    A("public enum AleronTypeTracking {")
+    for name, token in flat.items():
+        if token["$type"] == "letterSpacing":
+            A(f"    public static let {camel(name.split('.')[-1])}: CGFloat = {float(token['$value'][:-2]):g}")
+    A("}")
+    A("/// Unitless multiple of font size, not a SwiftUI .lineSpacing() gap.")
+    A("public enum AleronTypeLineHeight {")
+    for name, token in flat.items():
+        if token["$type"] == "lineHeight":
+            A(f"    public static let {camel(name.split('.')[-1])}: CGFloat = {float(token['$value']):g}")
+    A("}")
     A("")
     A("// MARK: - Opacity")
     A("public enum AleronOpacity {")

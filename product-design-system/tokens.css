@@ -77,6 +77,8 @@
   --w-h2: 650;
   --w-h3: 500;
   --w-emphasis: 500;
+  --track-display: -0.015em;
+  --lh-display: 1.1;
   --s-2xs: 4px;
   --s-xs: 8px;
   --s-sm: 12px;
