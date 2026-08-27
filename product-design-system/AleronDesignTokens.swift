@@ -153,6 +153,11 @@ public enum AleronRadius {
     public static let control: CGFloat = 10
     public static let tile: CGFloat = 4
 }
+public enum AleronLine {
+    public static let thin: CGFloat = 1
+    public static let focus: CGFloat = 2
+    public static let signal: CGFloat = 3
+}
 public enum AleronLayout {
     /// Rail rule R1: fixed desktop rail width.
     public static let navWidth: CGFloat = 188
@@ -200,6 +205,27 @@ public enum AleronTypeSize {
     public static let small: CGFloat = 13
     public static let audit: CGFloat = 11.5
     public static let caption: CGFloat = 10.5
+}
+public enum AleronTypeWeight {
+    public static let display: Int = 650
+    public static let h1: Int = 650
+    public static let h2: Int = 650
+    public static let h3: Int = 500
+    public static let emphasis: Int = 500
+}
+/// Em-relative. Multiply by font size for a SwiftUI .tracking() value.
+public enum AleronTypeTracking {
+    public static let display: CGFloat = -0.015
+}
+/// Unitless multiple of font size, not a SwiftUI .lineSpacing() gap.
+public enum AleronTypeLineHeight {
+    public static let display: CGFloat = 1.1
+}
+
+// MARK: - Opacity
+public enum AleronOpacity {
+    /// Dims a control's own fill/foreground while disabled, for components with no neutral disabled surface to swap to instead. Already in use by amd-toggle and amd-slider before this token existed.
+    public static let disabled: Double = 0.5
 }
 
 // MARK: - Elevation

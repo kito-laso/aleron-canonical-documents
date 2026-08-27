@@ -1,9 +1,47 @@
 #!/usr/bin/env python3
 """Generate AleronDesignTokens.swift from tokens.json. Do not hand-edit the output."""
-import argparse, json, pathlib, re, sys
+import argparse, copy, json, pathlib, re, sys
 
 ROOT = pathlib.Path(__file__).resolve().parent
 OUT = ROOT / "AleronDesignTokens.swift"
+
+UNRENDERED = {"font.voice", "font.audit"}
+
+def without(data, path):
+    stripped = copy.deepcopy(data)
+    node = stripped["tokens"]
+    *groups, leaf = path.split(".")
+    for group in groups:
+        node = node[group]
+    del node[leaf]
+    return stripped
+
+def check_coverage(data, flat, swift):
+    """Every token changes the Swift, or is listed in UNRENDERED above.
+
+    render() dispatches per $type and per group prefix, some of it by hardcoded
+    key, so a token it has no case for is dropped without a word. Re-rendering
+    without each token is what catches that: matching declaration names instead
+    would pass a token whose leaf collides with an unrelated one already emitted
+    (radius.tier2 and a hypothetical shadow.tier2 both want `tier2`). A token
+    read by hardcoded key raises KeyError once removed, which is also a use.
+
+    The two font tokens are listed: a CSS font stack has no SwiftUI equivalent,
+    and AleronTypeface resolves PostScript face names out of font_faces instead.
+    """
+    missing = []
+    for path in flat:
+        if path in UNRENDERED:
+            continue
+        try:
+            if render(without(data, path), verify=False) == swift:
+                missing.append(path)
+        except (KeyError, ValueError, AttributeError, TypeError):
+            continue
+    if missing:
+        raise ValueError(
+            f"tokens.json entries that produce no Swift output: {sorted(missing)}. "
+            f"Add a case to render(), or list the path in UNRENDERED")
 
 def flatten(node, prefix=()):
     out = {}
@@ -50,7 +88,7 @@ def swift_color(value):
 def px(value):
     return float(re.fullmatch(r"([\d.]+)px", value).group(1))
 
-def render(data):
+def render(data, verify=True):
     flat = flatten(data["tokens"])
     day, night = data["registers"]["day"], data["registers"]["flight-deck"]
     if set(day) != set(night):
@@ -114,6 +152,11 @@ def render(data):
         if name.startswith("radius."):
             A(f"    public static let {camel(name.split('.')[-1])}: CGFloat = {px(token['$value']):g}")
     A("}")
+    A("public enum AleronLine {")
+    for name, token in flat.items():
+        if name.startswith("line."):
+            A(f"    public static let {camel(name.split('.')[-1])}: CGFloat = {px(token['$value']):g}")
+    A("}")
     A("public enum AleronLayout {")
     A(f"    /// Rail rule R1: fixed desktop rail width.")
     A(f"    public static let navWidth: CGFloat = {px(flat['layout.nav']['$value']):g}")
@@ -161,6 +204,31 @@ def render(data):
             else:
                 A(f"    public static let {camel(short)}: CGFloat = {float(token['$value'].replace('px', '')):g}")
     A("}")
+    A("public enum AleronTypeWeight {")
+    for name, token in flat.items():
+        if token["$type"] == "fontWeight":
+            A(f"    public static let {camel(name.split('.')[-1])}: Int = {int(token['$value'])}")
+    A("}")
+    A("/// Em-relative. Multiply by font size for a SwiftUI .tracking() value.")
+    A("public enum AleronTypeTracking {")
+    for name, token in flat.items():
+        if token["$type"] == "letterSpacing":
+            A(f"    public static let {camel(name.split('.')[-1])}: CGFloat = {float(token['$value'][:-2]):g}")
+    A("}")
+    A("/// Unitless multiple of font size, not a SwiftUI .lineSpacing() gap.")
+    A("public enum AleronTypeLineHeight {")
+    for name, token in flat.items():
+        if token["$type"] == "lineHeight":
+            A(f"    public static let {camel(name.split('.')[-1])}: CGFloat = {float(token['$value']):g}")
+    A("}")
+    A("")
+    A("// MARK: - Opacity")
+    A("public enum AleronOpacity {")
+    for name, token in flat.items():
+        if token["$type"] == "opacity":
+            A(f"    /// {token['description']}")
+            A(f"    public static let {camel(name.split('.')[-1])}: Double = {float(token['$value']):g}")
+    A("}")
     A("")
     A("// MARK: - Elevation")
     A("public enum AleronElevation {")
@@ -177,7 +245,10 @@ def render(data):
     A(f"    /// Fixed control height floor; also the minimum hit target.")
     A(f"    public static let minHeight: CGFloat = {px(flat['control.minHeight']['$value']):g}")
     A("}")
-    return "\n".join(L) + "\n"
+    swift = "\n".join(L) + "\n"
+    if verify:
+        check_coverage(data, flat, swift)
+    return swift
 
 def main():
     parser = argparse.ArgumentParser()

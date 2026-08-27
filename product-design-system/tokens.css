@@ -72,6 +72,13 @@
   --size-small: 13px;
   --size-audit: 11.5px;
   --size-caption: 10.5px;
+  --w-display: 650;
+  --w-h1: 650;
+  --w-h2: 650;
+  --w-h3: 500;
+  --w-emphasis: 500;
+  --track-display: -0.015em;
+  --lh-display: 1.1;
   --s-2xs: 4px;
   --s-xs: 8px;
   --s-sm: 12px;
@@ -103,6 +110,7 @@
   --dur-base: 240ms;
   --dur-slow: 400ms;
   --day-shadow-tier1: 0 12px 36px rgba(29,27,24,0.09);
+  --opacity-disabled: 0.5;
   --ground: var(--paper);
   --text-primary: var(--ink);
   --text-secondary: var(--slate);
