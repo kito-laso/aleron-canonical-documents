@@ -182,16 +182,15 @@ public enum AleronMotion {
 public enum AleronTypeface {
     /// PolySans must be added to the app target and declared under UIAppFonts.
     public static func name(weight: Int, italic: Bool = false) -> String {
-        let faces: [(weight: Int, italic: Bool, name: String)] = [
-            (300, false, "PolySans-Slim"),
-            (400, false, "PolySans-Neutral"),
-            (400, true, "PolySans-NeutralItalic"),
-            (500, false, "PolySans-Median"),
-            (500, true, "PolySans-MedianItalic"),
-            (700, false, "PolySans-Bulky"),
-        ]
-        return faces.filter { $0.italic == italic }
-            .min { (abs($0.weight - weight), -$0.weight) < (abs($1.weight - weight), -$1.weight) }?.name ?? "PolySans-Neutral"
+        switch (weight, italic) {
+        case (300, false): return "PolySans-Slim"
+        case (400, false): return "PolySans-Neutral"
+        case (400, true): return "PolySans-NeutralItalic"
+        case (500, false): return "PolySans-Median"
+        case (500, true): return "PolySans-MedianItalic"
+        case (700, false): return "PolySans-Bulky"
+        default: return "PolySans-Neutral"
+        }
     }
     public static func voice(_ size: CGFloat, weight: Int = 400) -> Font { .custom(name(weight: weight), size: size) }
 }

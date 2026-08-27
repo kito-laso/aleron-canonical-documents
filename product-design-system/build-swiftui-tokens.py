@@ -182,15 +182,14 @@ def render(data, verify=True):
     A("public enum AleronTypeface {")
     A("    /// PolySans must be added to the app target and declared under UIAppFonts.")
     A("    public static func name(weight: Int, italic: Bool = false) -> String {")
-    A("        let faces: [(weight: Int, italic: Bool, name: String)] = [")
+    A("        switch (weight, italic) {")
     for face in data["font_faces"]:
         if face["family"] != "PolySans":
             continue
-        style = str(face["style"] == "italic").lower()
-        A(f"            ({face['weight']}, {style}, \"{pathlib.PurePath(face['src']).stem}\"),")
-    A("        ]")
-    A("        return faces.filter { $0.italic == italic }")
-    A("            .min { (abs($0.weight - weight), -$0.weight) < (abs($1.weight - weight), -$1.weight) }?.name ?? \"PolySans-Neutral\"")
+        style = face["style"] == "italic"
+        A(f"        case ({face['weight']}, {str(style).lower()}): return \"{pathlib.PurePath(face['src']).stem}\"")
+    A("        default: return \"PolySans-Neutral\"")
+    A("        }")
     A("    }")
     A("    public static func voice(_ size: CGFloat, weight: Int = 400) -> Font { .custom(name(weight: weight), size: size) }")
     A("}")
