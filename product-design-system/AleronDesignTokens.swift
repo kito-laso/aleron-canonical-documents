@@ -153,6 +153,11 @@ public enum AleronRadius {
     public static let control: CGFloat = 10
     public static let tile: CGFloat = 4
 }
+public enum AleronLine {
+    public static let thin: CGFloat = 1
+    public static let focus: CGFloat = 2
+    public static let signal: CGFloat = 3
+}
 public enum AleronLayout {
     /// Rail rule R1: fixed desktop rail width.
     public static let navWidth: CGFloat = 188
@@ -186,7 +191,7 @@ public enum AleronTypeface {
             (700, false, "PolySans-Bulky"),
         ]
         return faces.filter { $0.italic == italic }
-            .min { abs($0.weight - weight) < abs($1.weight - weight) }?.name ?? "PolySans-Neutral"
+            .min { (abs($0.weight - weight), -$0.weight) < (abs($1.weight - weight), -$1.weight) }?.name ?? "PolySans-Neutral"
     }
     public static func voice(_ size: CGFloat, weight: Int = 400) -> Font { .custom(name(weight: weight), size: size) }
 }

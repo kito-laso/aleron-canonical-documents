@@ -1,31 +1,47 @@
 #!/usr/bin/env python3
 """Generate AleronDesignTokens.swift from tokens.json. Do not hand-edit the output."""
-import argparse, json, pathlib, re, sys
+import argparse, copy, json, pathlib, re, sys
 
 ROOT = pathlib.Path(__file__).resolve().parent
 OUT = ROOT / "AleronDesignTokens.swift"
 
-RENDERED_TYPES = {"color", "dimension", "cubicBezier", "duration", "shadow",
-                  "opacity", "fontWeight"}
-RENDERED_GROUPS = {"color", "size", "weight", "space", "air", "layout", "layer",
-                   "radius", "line", "control", "motion", "shadow", "opacity"}
-UNRENDERED_GROUPS = {"font"}
+UNRENDERED = {"font.voice", "font.audit"}
 
-def check_coverage(flat):
-    """render() dispatches per known $type and per group prefix, so a token whose
-    type or group is absent from both sets above produces no Swift output at all.
+def without(data, path):
+    stripped = copy.deepcopy(data)
+    node = stripped["tokens"]
+    *groups, leaf = path.split(".")
+    for group in groups:
+        node = node[group]
+    del node[leaf]
+    return stripped
 
-    font is unrendered on purpose: a CSS font stack has no SwiftUI equivalent, and
-    AleronTypeface resolves PostScript face names out of font_faces instead.
+def check_coverage(data, flat, swift):
+    """Every token changes the Swift, or is listed in UNRENDERED above.
+
+    render() dispatches per $type and per group prefix, some of it by hardcoded
+    key, so a token it has no case for is dropped without a word. Re-rendering
+    without each token is what catches that: matching declaration names instead
+    would pass a token whose leaf collides with an unrelated one already emitted
+    (radius.tier2 and a hypothetical shadow.tier2 both want `tier2`). A token
+    read by hardcoded key raises KeyError once removed, which is also a use.
+
+    The two font tokens are listed: a CSS font stack has no SwiftUI equivalent,
+    and AleronTypeface resolves PostScript face names out of font_faces instead.
     """
-    types = {t["$type"] for p, t in flat.items()
-             if p.split(".")[0] not in UNRENDERED_GROUPS} - RENDERED_TYPES
-    groups = {p.split(".")[0] for p in flat} - RENDERED_GROUPS - UNRENDERED_GROUPS
-    if types or groups:
+    missing = []
+    for path in flat:
+        if path in UNRENDERED:
+            continue
+        try:
+            if render(without(data, path), verify=False) == swift:
+                missing.append(path)
+        except (KeyError, ValueError, AttributeError, TypeError):
+            continue
+    if missing:
         raise ValueError(
-            f"No Swift render case for type(s) {sorted(types)} / "
-            f"group(s) {sorted(groups)}: add one to render(), or list the group "
-            f"in UNRENDERED_GROUPS")
+            f"tokens.json entries that produce no Swift output: {sorted(missing)}. "
+            f"Add a case to render(), or list the path in UNRENDERED")
 
 def flatten(node, prefix=()):
     out = {}
@@ -72,9 +88,8 @@ def swift_color(value):
 def px(value):
     return float(re.fullmatch(r"([\d.]+)px", value).group(1))
 
-def render(data):
+def render(data, verify=True):
     flat = flatten(data["tokens"])
-    check_coverage(flat)
     day, night = data["registers"]["day"], data["registers"]["flight-deck"]
     if set(day) != set(night):
         raise ValueError("Register key mismatch between day and flight-deck")
@@ -137,6 +152,11 @@ def render(data):
         if name.startswith("radius."):
             A(f"    public static let {camel(name.split('.')[-1])}: CGFloat = {px(token['$value']):g}")
     A("}")
+    A("public enum AleronLine {")
+    for name, token in flat.items():
+        if name.startswith("line."):
+            A(f"    public static let {camel(name.split('.')[-1])}: CGFloat = {px(token['$value']):g}")
+    A("}")
     A("public enum AleronLayout {")
     A(f"    /// Rail rule R1: fixed desktop rail width.")
     A(f"    public static let navWidth: CGFloat = {px(flat['layout.nav']['$value']):g}")
@@ -170,7 +190,7 @@ def render(data):
         A(f"            ({face['weight']}, {style}, \"{pathlib.PurePath(face['src']).stem}\"),")
     A("        ]")
     A("        return faces.filter { $0.italic == italic }")
-    A("            .min { abs($0.weight - weight) < abs($1.weight - weight) }?.name ?? \"PolySans-Neutral\"")
+    A("            .min { (abs($0.weight - weight), -$0.weight) < (abs($1.weight - weight), -$1.weight) }?.name ?? \"PolySans-Neutral\"")
     A("    }")
     A("    public static func voice(_ size: CGFloat, weight: Int = 400) -> Font { .custom(name(weight: weight), size: size) }")
     A("}")
@@ -214,7 +234,10 @@ def render(data):
     A(f"    /// Fixed control height floor; also the minimum hit target.")
     A(f"    public static let minHeight: CGFloat = {px(flat['control.minHeight']['$value']):g}")
     A("}")
-    return "\n".join(L) + "\n"
+    swift = "\n".join(L) + "\n"
+    if verify:
+        check_coverage(data, flat, swift)
+    return swift
 
 def main():
     parser = argparse.ArgumentParser()
