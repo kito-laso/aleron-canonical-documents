@@ -7,7 +7,7 @@
 <meta name="description" content="The Aleron MD visual identity. One deck, the source of truth for the brand system.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@100..900&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
 <style>
   /* PolySans is bundled for deterministic local rendering. Each source
      weight is its own font family, mapped here into one CSS family. */
@@ -1094,7 +1094,7 @@
     <div class="row abstract">
       <div class="row-label">The decision</div>
       <div class="prose">
-        <p><b>Space Mono</b> is locked as the audit face: units, sources, footnotes, the wordmark's tag. The open decision is the voice face, everything a member reads: <b>PolySans,</b> the face the wordmark is codified in, against <b>Hanken Grotesk,</b> free and rendering this document now. Deciding the face decides whether the wordmark renders exactly or by adaptation.</p>
+        <p><b>Space Mono</b> is locked as the audit face: units, sources, footnotes, the wordmark's tag. The voice face, everything a member reads, was decided in AL-23: <b>PolySans,</b> the face the wordmark is codified in, was not licensed for app-bundle distribution, so <b>Hanken Grotesk</b> carries the voice. It was already the designated fallback, it is free under the OFL, and it has rendered this document from the start. The wordmark therefore renders by adaptation rather than exactly.</p>
       </div>
     </div>
 
@@ -1102,7 +1102,7 @@
       <div class="row-label">The tokens</div>
       <div>
         <div class="def" id="tokenTable"></div>
-        <p class="f-cap">Read live from the stylesheet; the deck consumes the same variables · body remains system font until the face is decided</p>
+        <p class="f-cap">Read live from the stylesheet; the deck consumes the same variables · the voice face is Hanken Grotesk, loaded across its full 100–900 weight axis</p>
       </div>
     </div>
 
@@ -1141,10 +1141,18 @@
     </div>
 
     <div class="row figure-block">
+      <div class="row-label">The consequence</div>
+      <div>
+        <img src="assets/brand/typeface-comparison.png" alt="The same five type steps set twice: PolySans on the left, Hanken Grotesk on the right. PolySans has no 650 weight, so its display and heading rows fall back to Bulky 700 and read heavier and wider than Hanken Grotesk at a true 650." style="display: block; width: 100%; height: auto; border: 1px solid rgba(29,27,24,0.10);">
+        <p class="f-cap">Rendered from the font files, not the live page, so the comparison holds without shipping a face the licence does not cover · PolySans cuts at 300 / 400 / 500 / 700 against one variable file at 100–900</p>
+      </div>
+    </div>
+
+    <div class="row figure-block">
       <div class="row-label">The decision table</div>
       <div>
         <div class="def" id="faceTable"></div>
-        <p class="f-cap">Measured live where measurable · the PolySans column fills when the license lands · the table decides, not prose</p>
+        <p class="f-cap">Measured live where measurable · the PolySans metrics fill only on a machine with it installed · the table records the decision, not prose</p>
       </div>
     </div>
 
@@ -2410,8 +2418,8 @@ render();
     if (wf) wf.textContent = polyLoaded ? 'PolySans · licensed, rendering' : 'Hanken Grotesk · working, free';
     const fs = document.getElementById('faceStatus');
     if (fs) fs.textContent = polyLoaded
-      ? 'POLYSANS DETECTED: THE SPECIMEN AND THE WHOLE DECK ARE RENDERING IN IT, VIA THE SAME TOKEN'
-      : 'POLYSANS NOT LICENSED: THE TOKEN FALLS BACK TO HANKEN GROTESK; THE SPECIMEN UPGRADES ITSELF THE DAY THE LICENSE LANDS';
+      ? 'POLYSANS DETECTED LOCALLY: YOU ARE SEEING A FACE THE PRODUCT DOES NOT SHIP, EVERYONE ELSE GETS HANKEN GROTESK'
+      : 'RENDERING IN HANKEN GROTESK, THE SHIPPING VOICE FACE; SEE THE COMPARISON BELOW FOR WHAT POLYSANS WOULD HAVE LOOKED LIKE';
 
     function metrics(family) {
       if (family === 'PolySans' && !polyLoaded) return null;
@@ -2437,7 +2445,7 @@ render();
       ['Characters per 660px line', cell(hk, 'cpl'), cell(ps, 'cpl')],
       ['Wordmark', 'adaptation', 'exact, as codified'],
       ['Neighbor distance', 'clear of Inter Tight', 'clear of Inter Tight'],
-      ['License', 'free, SIL OFL', 'quote pending'],
+      ['License', 'free, SIL OFL', 'not taken (AL-23)'],
     ];
     const ft = document.getElementById('faceTable');
     if (ft) {
