@@ -2493,30 +2493,36 @@ section.ds-section:first-child { border-top: none; padding-top: 48px; }
     <div class="type-scale">
       <div class="type-scale-row">
         <div class="type-scale-role">Display</div>
-        <div class="type-scale-sample" style="font-size:var(--size-display);font-weight:500;letter-spacing:-0.02em;line-height:1.1">Your best days are still ahead.</div>
-        <div class="type-scale-spec">clamp(32,4vw,48) / 500 / -0.02em</div>
+        <div class="type-scale-sample" style="font-size:var(--size-display);font-weight:var(--w-display);letter-spacing:var(--track-display);line-height:var(--lh-display)">Your best days are still ahead.</div>
+        <div class="type-scale-spec">clamp(32,4vw,48) / 650 / -0.015em / 1.1</div>
       </div>
       <div class="type-scale-row">
         <div class="type-scale-role">H1</div>
-        <div class="type-scale-sample" style="font-size:var(--size-h1);font-weight:500;letter-spacing:-0.02em">Some of your best days.</div>
-        <div class="type-scale-spec">36 / 500 / -0.02em</div>
+        <div class="type-scale-sample" style="font-size:var(--size-h1);font-weight:var(--w-h1);letter-spacing:-0.02em">Some of your best days.</div>
+        <div class="type-scale-spec">36 / 650 / -0.02em</div>
       </div>
       <div class="type-scale-row">
         <div class="type-scale-role">H2</div>
-        <div class="type-scale-sample" style="font-size:var(--size-h2);font-weight:500">The medical team you would build.</div>
-        <div class="type-scale-spec">26 / 500</div>
+        <div class="type-scale-sample" style="font-size:var(--size-h2);font-weight:var(--w-h2)">The medical team you would build.</div>
+        <div class="type-scale-spec">26 / 650</div>
+      </div>
+      <div class="type-scale-row">
+        <div class="type-scale-role">H3</div>
+        <div class="type-scale-sample" style="font-size:var(--size-h3);font-weight:var(--w-h3)">What changed since your last visit.</div>
+        <div class="type-scale-spec">19 / 500</div>
       </div>
       <div class="type-scale-row">
         <div class="type-scale-role">Body</div>
-        <div class="type-scale-sample" style="font-size:15.5px;line-height:1.6">The physician in sentences, the instrument in units.</div>
+        <div class="type-scale-sample" style="font-size:var(--size-text);line-height:1.6">The physician in sentences, the instrument in units.</div>
         <div class="type-scale-spec">15.5 / 400 / 1.6</div>
       </div>
       <div class="type-scale-row">
         <div class="type-scale-role">Value</div>
-        <div class="type-scale-sample" style="font-family:var(--voice);font-weight:500;font-variant-numeric:tabular-nums;font-size:13px;color:var(--ink)">hsCRP 1.9 mg/L · ApoB 78 mg/dL</div>
+        <div class="type-scale-sample" style="font-family:var(--voice);font-weight:var(--w-emphasis);font-variant-numeric:tabular-nums;font-size:13px;color:var(--ink)">hsCRP 1.9 mg/L · ApoB 78 mg/dL</div>
         <div class="type-scale-spec">voice · 500 · tabular</div>
       </div>
     </div>
+    <p class="fine"><b>Ratified:</b> display weight, tracking and line height, from brand-deck §06. <b>Provisional:</b> H1, H2 and H3 weights, derived from the display weight and pending design sign-off. Every step above reads its weight from a token, so signing off means changing <code>tokens.json</code>, not this page.</p>
   </div>
 
   <!-- WORDMARK -->
