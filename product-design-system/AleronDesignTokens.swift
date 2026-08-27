@@ -185,9 +185,8 @@ public enum AleronTypeface {
             (500, true, "PolySans-MedianItalic"),
             (700, false, "PolySans-Bulky"),
         ]
-        let matching = faces.filter { $0.italic == italic }
-        let pool = matching.isEmpty ? faces : matching
-        return pool.min { abs($0.weight - weight) < abs($1.weight - weight) }?.name ?? "PolySans-Neutral"
+        return faces.filter { $0.italic == italic }
+            .min { abs($0.weight - weight) < abs($1.weight - weight) }?.name ?? "PolySans-Neutral"
     }
     public static func voice(_ size: CGFloat, weight: Int = 400) -> Font { .custom(name(weight: weight), size: size) }
 }
