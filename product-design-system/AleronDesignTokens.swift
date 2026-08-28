@@ -59,6 +59,9 @@ public struct AleronSemanticColors {
     public let controlPrimaryHoverBg: Color
     public let controlSecondaryHoverBorder: Color
     public let controlTertiaryHoverFg: Color
+    public let controlHazardBg: Color
+    public let controlHazardFg: Color
+    public let controlHazardHoverBg: Color
     public let controlDisabledBg: Color
     public let controlDisabledFg: Color
     public let scrim: Color
@@ -87,6 +90,9 @@ public struct AleronSemanticColors {
         controlPrimaryHoverBg: Color(red: 0, green: 0, blue: 0),
         controlSecondaryHoverBorder: Color(red: 0.1137, green: 0.1059, blue: 0.09412),
         controlTertiaryHoverFg: Color(red: 0.1137, green: 0.1059, blue: 0.09412),
+        controlHazardBg: Color(red: 0.6431, green: 0.2706, blue: 0.1725),
+        controlHazardFg: Color(red: 0.9608, green: 0.9451, blue: 0.9098),
+        controlHazardHoverBg: Color(red: 0.5137, green: 0.2157, blue: 0.1373),
         controlDisabledBg: Color(red: 0.9451, green: 0.9294, blue: 0.902),
         controlDisabledFg: Color(red: 0.1137, green: 0.1059, blue: 0.09412, opacity: 0.38),
         scrim: Color(red: 0.1137, green: 0.1059, blue: 0.09412, opacity: 0.28)
@@ -115,6 +121,9 @@ public struct AleronSemanticColors {
         controlPrimaryHoverBg: Color(red: 1, green: 1, blue: 1),
         controlSecondaryHoverBorder: Color(red: 0.9608, green: 0.9451, blue: 0.9098),
         controlTertiaryHoverFg: Color(red: 0.9608, green: 0.9451, blue: 0.9098),
+        controlHazardBg: Color(red: 0.6431, green: 0.2706, blue: 0.1725),
+        controlHazardFg: Color(red: 0.9608, green: 0.9451, blue: 0.9098),
+        controlHazardHoverBg: Color(red: 0.5137, green: 0.2157, blue: 0.1373),
         controlDisabledBg: Color(red: 0.9608, green: 0.9451, blue: 0.9098, opacity: 0.12),
         controlDisabledFg: Color(red: 0.9608, green: 0.9451, blue: 0.9098, opacity: 0.3),
         scrim: Color(red: 0, green: 0, blue: 0, opacity: 0.48)
