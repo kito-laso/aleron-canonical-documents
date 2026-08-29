@@ -108,8 +108,8 @@
 .amd-modal[data-variant="sheet"] { top: auto; left: 0; right: 0; bottom: 0; transform: none; width: 100%; max-height: calc(100% - var(--s-3xl)); border-radius: var(--radius-tier1) var(--radius-tier1) 0 0; }
 .amd-loading { display: inline-flex; align-items: center; justify-content: center; gap: var(--s-xs); }
 .amd-loading__dot { width: var(--s-xs); height: var(--s-xs); border-radius: 50%; background: var(--text-secondary); animation: amd-loading-pulse calc(var(--dur-slow) * 3) var(--ease) infinite; }
-.amd-loading__dot:nth-child(2) { animation-delay: var(--dur-fast); }
-.amd-loading__dot:nth-child(3) { animation-delay: var(--dur-base); }
+.amd-loading__dot:nth-child(2) { animation-delay: var(--dur-slow); }
+.amd-loading__dot:nth-child(3) { animation-delay: calc(var(--dur-slow) * 2); }
 @keyframes amd-loading-pulse { 0%, 100% { opacity: 0.3; } 50% { opacity: 1; } }
 .amd-toast { position: relative; z-index: var(--z-raised); }
 @media (prefers-reduced-motion: reduce) { .amd-loading__dot { animation: none; } .amd-toggle, .amd-toggle::after { transition: none; } }
