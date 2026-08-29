@@ -7,6 +7,10 @@
 .amd-button[data-variant="secondary"]:hover:not(:disabled):not([aria-disabled="true"]), .amd-button[data-variant="secondary"]:active:not(:disabled):not([aria-disabled="true"]) { border-color: var(--control-secondary-hover-border); }
 .amd-button[data-variant="tertiary"] { background: transparent; color: var(--text-secondary); }
 .amd-button[data-variant="tertiary"]:hover:not(:disabled):not([aria-disabled="true"]), .amd-button[data-variant="tertiary"]:active:not(:disabled):not([aria-disabled="true"]) { color: var(--control-tertiary-hover-fg); }
+.amd-button[data-variant="hazard"] { background: var(--control-hazard-bg); color: var(--control-hazard-fg); }
+.amd-button[data-variant="hazard"]:hover:not(:disabled):not([aria-disabled="true"]), .amd-button[data-variant="hazard"]:active:not(:disabled):not([aria-disabled="true"]) { background: var(--control-hazard-hover-bg); }
+.amd-button[data-variant="hazard"]:disabled, .amd-button[data-variant="hazard"][aria-disabled="true"] { background: var(--control-hazard-bg); color: var(--control-hazard-fg); opacity: var(--opacity-disabled); }
+.amd-button[data-variant="hazard"][aria-busy="true"] { color: var(--control-hazard-fg); opacity: 1; }
 .amd-button[aria-busy="true"] { cursor: progress; color: var(--control-disabled-fg); }
 .amd-button:focus-visible, .amd-input:focus-visible, .amd-tabs [role="tab"]:focus-visible, .amd-ask-trigger:focus-visible { outline: var(--line-focus) solid var(--signal-forward); outline-offset: var(--s-2xs); }
 .amd-button:disabled, .amd-button[aria-disabled="true"] { background: var(--control-disabled-bg); color: var(--control-disabled-fg); cursor: not-allowed; }
