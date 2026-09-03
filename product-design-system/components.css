@@ -14,6 +14,7 @@
 .amd-button[aria-busy="true"] { cursor: progress; color: var(--control-disabled-fg); }
 .amd-button:focus-visible, .amd-input:focus-visible, .amd-tabs [role="tab"]:focus-visible, .amd-ask-trigger:focus-visible { outline: var(--line-focus) solid var(--signal-forward); outline-offset: var(--s-2xs); }
 .amd-button:disabled, .amd-button[aria-disabled="true"] { background: var(--control-disabled-bg); color: var(--control-disabled-fg); cursor: not-allowed; }
+.amd-prose-heading { display: block; font-size: var(--size-h4); font-weight: var(--w-h4); color: var(--text-primary); }
 .amd-field { display: grid; gap: var(--s-xs); }
 .amd-field__label { color: var(--text-secondary); font-size: var(--size-small); }
 .amd-input { width: 100%; min-height: var(--control-min-h); padding: var(--s-xs) var(--s-sm); border: 0; border-radius: var(--radius-control); background: var(--surface-inset); color: var(--text-primary); font: inherit; }

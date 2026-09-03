@@ -796,6 +796,44 @@
    ]
   },
   {
+   "id": "core.prose-heading",
+   "category": "core",
+   "status": "provisional",
+   "selector": ".amd-prose-heading",
+   "purpose": "Heads a block of prose inside a document surface: the sections of a clinical note, a letter, a release package. The tier below h3. Not a form label, because .amd-field__label is sized for a caption above a control and renders smaller than a paragraph.",
+   "registers": [
+    "day",
+    "flight-deck"
+   ],
+   "required_tokens": [
+    "size.h4",
+    "weight.h4",
+    "text-primary"
+   ],
+   "states": [
+    "default"
+   ],
+   "forbidden": [
+    "size-below-the-prose-it-heads",
+    "caption-tier-sizing",
+    "field-label-substitution"
+   ],
+   "reference": "./index.html#type",
+   "implementation": {
+    "web": "./components.css",
+    "source_selector": ".amd-prose-heading"
+   },
+   "acceptance": [
+    "T1",
+    "T2",
+    "T3",
+    "T4",
+    "T5",
+    "T6",
+    "T7"
+   ]
+  },
+  {
    "id": "core.select",
    "category": "core",
    "status": "provisional",

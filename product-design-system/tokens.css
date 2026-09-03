@@ -33,6 +33,7 @@
   --size-h2: 26px;
   --size-h3: 19px;
   --size-lede: 18px;
+  --size-h4: 15.5px;
   --size-text: 15.5px;
   --size-small: 13px;
   --size-audit: 11.5px;
@@ -41,6 +42,7 @@
   --w-h1: 650;
   --w-h2: 650;
   --w-h3: 500;
+  --w-h4: 500;
   --w-emphasis: 500;
   --track-display: -0.015em;
   --lh-display: 1.1;
