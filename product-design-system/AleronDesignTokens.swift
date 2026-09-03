@@ -205,6 +205,7 @@ public enum AleronTypeSize {
     public static let h2: CGFloat = 26
     public static let h3: CGFloat = 19
     public static let lede: CGFloat = 18
+    public static let h4: CGFloat = 15.5
     public static let text: CGFloat = 15.5
     public static let small: CGFloat = 13
     public static let audit: CGFloat = 11.5
@@ -215,6 +216,7 @@ public enum AleronTypeWeight {
     public static let h1: Int = 650
     public static let h2: Int = 650
     public static let h3: Int = 500
+    public static let h4: Int = 500
     public static let emphasis: Int = 500
 }
 /// Em-relative. Multiply by font size for a SwiftUI .tracking() value.
