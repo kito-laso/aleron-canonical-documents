@@ -15,6 +15,10 @@ Rebuilt from the source workspace with `python3 scripts/deploy-canonical-documen
 That script lives in the source repository, not here, so the rebuild cannot be run
 from a clone of this one.
 
+Which documents are current, and which versions they superseded, is indexed in
+[VERSIONING.md](VERSIONING.md). Check it before trusting a version number written
+anywhere else.
+
 ## In-flight canonical proposals
 
 This fork additionally carries proposed design-system changes on `al-*` branches,
