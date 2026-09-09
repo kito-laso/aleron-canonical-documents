@@ -1,7 +1,7 @@
 # Versioning
 
-Nine documents in this repository carry a version. Before this file, they
-expressed it three different ways — an `## Version` heading, a lowercase `-v0.5`
+The documents in this repository that carry a version expressed it three
+different ways before this file — an `## Version` heading, a lowercase `-v0.5`
 filename suffix, an uppercase `_V1` one — and none of them said whether it was
 still current. `product-design-system/DESIGN_SYSTEM.md` sat a full version behind
 its own `manifest.json` for weeks without anything catching it.
@@ -108,7 +108,7 @@ Check which one you are working against before porting a token between them.
 |---|---|---|
 | [`docs/product/STATE_MACHINE_V1.md`](docs/product/STATE_MACHINE_V1.md) | 1 | Wave 1 product contract |
 | [`docs/product/ROLE_AND_RELEASE_MATRIX_V1.md`](docs/product/ROLE_AND_RELEASE_MATRIX_V1.md) | 1 | Wave 1 product contract |
-| [`docs/engineering/API_CONTRACT_V1.md`](docs/engineering/API_CONTRACT_V1.md) | 1 | Wave 2 schema and API foundation. **Its `schemas/` registry — 12 files — is not checked in**, so the shared contract it declares cannot be read here |
+| [`docs/engineering/API_CONTRACT_V1.md`](docs/engineering/API_CONTRACT_V1.md) | 1 | Wave 2 schema and API foundation. **Its `schemas/` registry is not checked in**, so the shared contract it declares cannot be read here |
 
 ## Adding or superseding a document
 
